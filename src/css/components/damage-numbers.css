@@ -1,0 +1,81 @@
+/* ============================================================
+   MediCard Duel — Damage Numbers
+   Floating damage/heal text animations
+   ============================================================ */
+
+.damage-number {
+  position: absolute;
+  font-size: 28px;
+  font-weight: 900;
+  font-family: var(--font-mono);
+  color: var(--accent-red);
+  text-shadow:
+    0 0 10px rgba(239, 68, 68, 0.8),
+    0 0 20px rgba(239, 68, 68, 0.4);
+  pointer-events: none;
+  z-index: 202;
+  animation: damage-pop 1s ease-out forwards;
+}
+
+.damage-number.critical {
+  font-size: 42px;
+  color: var(--accent-yellow);
+  text-shadow:
+    0 0 10px rgba(251, 191, 36, 0.9),
+    0 0 20px rgba(251, 191, 36, 0.6),
+    0 0 40px rgba(251, 191, 36, 0.3);
+}
+
+.damage-number.heal {
+  color: var(--accent-green);
+  text-shadow:
+    0 0 10px rgba(16, 185, 129, 0.8),
+    0 0 20px rgba(16, 185, 129, 0.4);
+}
+
+.damage-number.shield {
+  color: var(--accent-blue);
+  text-shadow:
+    0 0 10px rgba(59, 130, 246, 0.8),
+    0 0 20px rgba(59, 130, 246, 0.4);
+}
+
+@keyframes damage-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(0) scale(0.5);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(-15px) scale(1.3);
+  }
+  30% {
+    transform: translateY(-25px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-60px) scale(0.8);
+  }
+}
+
+/* Combo counter */
+.combo-text {
+  position: absolute;
+  top: 10%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  text-shadow: 0 0 10px rgba(6, 182, 212, 0.6);
+  pointer-events: none;
+  z-index: 203;
+  animation: combo-fade 1.5s ease-out forwards;
+}
+
+@keyframes combo-fade {
+  0% { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  20% { opacity: 1; transform: translateX(-50%) translateY(0); }
+  80% { opacity: 0.5; }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+}

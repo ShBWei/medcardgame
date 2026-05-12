@@ -1,0 +1,103 @@
+/* ============================================================
+   MediCard Duel — Screen Transitions
+   Page-to-page transition effects
+   ============================================================ */
+
+/* Screen transition base */
+.screen-transition {
+  animation: screenTransitionIn 400ms ease-out;
+}
+
+@keyframes screenTransitionIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Slide from right */
+.screen-slide-right {
+  animation: slideFromRight 350ms ease-out;
+}
+@keyframes slideFromRight {
+  from { opacity: 0; transform: translateX(60px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* Slide from left */
+.screen-slide-left {
+  animation: slideFromLeft 350ms ease-out;
+}
+@keyframes slideFromLeft {
+  from { opacity: 0; transform: translateX(-60px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* Fade only */
+.screen-fade {
+  animation: screenFadeIn 500ms ease-out;
+}
+@keyframes screenFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Stagger children animations */
+.stagger-children > * {
+  opacity: 0;
+  animation: staggerFadeIn 400ms ease-out forwards;
+}
+
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 80ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 160ms; }
+.stagger-children > *:nth-child(4) { animation-delay: 240ms; }
+.stagger-children > *:nth-child(5) { animation-delay: 320ms; }
+.stagger-children > *:nth-child(6) { animation-delay: 400ms; }
+.stagger-children > *:nth-child(7) { animation-delay: 480ms; }
+.stagger-children > *:nth-child(8) { animation-delay: 560ms; }
+
+@keyframes staggerFadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Button press animation */
+.btn-pressed {
+  animation: btnPressDown 150ms ease-out;
+}
+@keyframes btnPressDown {
+  0% { transform: scale(1); }
+  50% { transform: scale(0.92); }
+  100% { transform: scale(1); }
+}
+
+/* Notification toast */
+.toast-enter {
+  animation: toastSlideIn 300ms ease-out;
+}
+@keyframes toastSlideIn {
+  from { opacity: 0; transform: translateY(-20px) scale(0.9); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.toast-exit {
+  animation: toastSlideOut 200ms ease-in forwards;
+}
+@keyframes toastSlideOut {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-20px); }
+}
+
+/* Modal enter/exit */
+.modal-enter {
+  animation: modalEnter 250ms ease-out;
+}
+@keyframes modalEnter {
+  from { opacity: 0; transform: scale(0.9) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}

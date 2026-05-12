@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0f172a">
+<title>MediCard 医杀 (Dev)</title>
+<!-- CSS (dev: individual files) -->
+<link rel="stylesheet" href="src/css/themes/default-theme.css">
+<link rel="stylesheet" href="src/css/components/glassmorphism.css">
+<link rel="stylesheet" href="src/css/components/buttons.css">
+<link rel="stylesheet" href="src/css/components/particles.css">
+<link rel="stylesheet" href="src/css/components/damage-numbers.css">
+<link rel="stylesheet" href="src/css/cards/card-base.css">
+<link rel="stylesheet" href="src/css/cards/card-rarity.css">
+<link rel="stylesheet" href="src/css/cards/card-3d-flip.css">
+<link rel="stylesheet" href="src/css/cards/card-subjects.css">
+<link rel="stylesheet" href="src/css/cards/card-animations.css">
+<link rel="stylesheet" href="src/css/screens/screen-auth.css">
+<link rel="stylesheet" href="src/css/screens/screen-title.css">
+<link rel="stylesheet" href="src/css/screens/screen-lobby.css">
+<link rel="stylesheet" href="src/css/screens/screen-subject.css">
+<link rel="stylesheet" href="src/css/screens/screen-battle.css">
+<link rel="stylesheet" href="src/css/animations/keyframes.css">
+<link rel="stylesheet" href="src/css/animations/transitions.css">
+<link rel="stylesheet" href="src/css/animations/particle-effects.css">
+<link rel="stylesheet" href="src/css/community/community.css">
+</head>
+<body>
+<div id="app"></div>
+<!-- External libs -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js"></script>
+<script src="src/lib/peerjs.min.js"></script>
+<!-- JS modules (dev: individual files in dependency order) -->
+<script src="src/modules/config/deploy-config.js"></script>
+<script src="src/modules/security/crypto-utils.js"></script>
+<script src="src/modules/storage/local-storage.js"></script>
+<script src="src/modules/storage/data-compressor.js"></script>
+<!-- Subject files — 8 subjects -->
+<script src="src/modules/question-bank/subjects/cell-biology.js"></script>
+<script src="src/modules/question-bank/subjects/biochemistry.js"></script>
+<script src="src/modules/question-bank/subjects/physiology.js"></script>
+<script src="src/modules/question-bank/subjects/pathology.js"></script>
+<script src="src/modules/question-bank/subjects/histology-embryology.js"></script>
+<script src="src/modules/question-bank/subjects/systematic-anatomy.js"></script>
+<script src="src/modules/question-bank/subjects/immunology.js"></script>
+<script src="src/modules/question-bank/subjects/microbiology.js"></script>
+<script src="src/modules/question-bank/question-validator.js"></script>
+<script src="src/modules/question-bank/question-loader.js"></script>
+<script src="src/modules/game-core/resource-system.js"></script>
+<script src="src/modules/game-core/victory-condition.js"></script>
+<script src="src/modules/game-core/turn-system.js"></script>
+<script src="src/modules/game-core/game-state.js"></script>
+<script src="src/modules/card-system/card-data.js"></script>
+<script src="src/modules/card-system/card-effects.js"></script>
+<script src="src/modules/card-system/card-visuals.js"></script>
+<script src="src/modules/card-system/card-animations.js"></script>
+<script src="src/modules/identity-system/identity-data.js"></script>
+<script src="src/modules/identity-system/identity-skills.js"></script>
+<script src="src/modules/identity-system/identity-ui.js"></script>
+<script src="src/modules/ui-system/components/card-component.js"></script>
+<script src="src/modules/ui-system/components/timer-component.js"></script>
+<script src="src/modules/ui-system/components/player-panel.js"></script>
+<script src="src/modules/ui-system/components/question-popup.js"></script>
+<script src="src/modules/ui-system/screen-auth.js"></script>
+<script src="src/modules/ui-system/screen-title.js"></script>
+<script src="src/modules/ui-system/screen-lobby.js"></script>
+<script src="src/modules/ui-system/screen-subject.js"></script>
+<script src="src/modules/ui-system/screen-battle.js"></script>
+<script src="src/modules/ui-system/screen-deck.js"></script>
+<script src="src/modules/ui-system/screen-result.js"></script>
+<script src="src/modules/audio-system/audio-generator.js"></script>
+<script src="src/modules/network/sync-protocol.js"></script>
+<script src="src/modules/network/room-manager.js"></script>
+<script src="src/modules/network/p2p-host.js"></script>
+<script src="src/modules/network/p2p-client.js"></script>
+<!-- Community modules -->
+<script src="src/modules/community/community-core.js"></script>
+<script src="src/modules/community/community-leaderboard.js"></script>
+<script src="src/modules/community/community-challenge.js"></script>
+<script src="src/modules/community/community-questions.js"></script>
+<script src="src/modules/community/community-feedback.js"></script>
+<script src="src/modules/main.js"></script>
+</body>
+</html>

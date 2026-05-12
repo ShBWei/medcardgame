@@ -1,0 +1,17 @@
+{
+  "name": "medicard-duel",
+  "version": "4.0.0",
+  "description": "MediCard Duel: Three Kingdoms Edition — Medical Card Battle Game",
+  "main": "index.html",
+  "scripts": {
+    "build": "node tools/build.js",
+    "watch": "node tools/build-watch.js",
+    "deploy": "bash tools/deploy.sh"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "jsdom": "^29.1.1",
+    "peer": "^1.0.2"
+  }
+}

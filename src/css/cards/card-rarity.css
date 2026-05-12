@@ -1,0 +1,191 @@
+/* ============================================================
+   MediCard Duel — Card Rarity Styles
+   4 rarity tiers: Common, Rare, Epic, Legendary
+   ============================================================ */
+
+/* ---------- Common ---------- */
+.card[data-rarity="common"] .card-front {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  border-color: rgba(100, 116, 139, 0.25);
+}
+.card[data-rarity="common"] .card-gem {
+  background: radial-gradient(circle, #94a3b8, #64748b);
+}
+.card[data-rarity="common"] .card-rarity-label {
+  background: rgba(100, 116, 139, 0.2);
+  color: #94a3b8;
+}
+.card[data-rarity="common"] .card-glow {
+  box-shadow: none;
+}
+
+/* ---------- Rare ---------- */
+.card[data-rarity="rare"] .card-front {
+  background: linear-gradient(135deg, #1e3a5f 0%, #0f172a 50%, #1e3a5f 100%);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  position: relative;
+}
+.card[data-rarity="rare"] .card-front::before {
+  content: '';
+  position: absolute;
+  top: -2px; left: -2px; right: -2px; bottom: -2px;
+  background: linear-gradient(135deg, #06b6d4, #3b82f6);
+  border-radius: 13px;
+  z-index: -1;
+  opacity: 0.6;
+}
+.card[data-rarity="rare"] .card-gem {
+  background: radial-gradient(circle, #67e8f9, #06b6d4);
+  box-shadow: 0 0 8px rgba(6, 182, 212, 0.4);
+}
+.card[data-rarity="rare"] .card-rarity-label {
+  background: rgba(6, 182, 212, 0.2);
+  color: #67e8f9;
+}
+.card[data-rarity="rare"]:hover .card-glow {
+  box-shadow: 0 0 15px rgba(6, 182, 212, 0.4);
+}
+
+/* ---------- Epic ---------- */
+.card[data-rarity="epic"] .card-front {
+  background: linear-gradient(135deg, #2e1065 0%, #0f172a 50%, #2e1065 100%);
+  border: 2px solid transparent;
+  position: relative;
+  overflow: hidden;
+}
+.card[data-rarity="epic"] .card-front::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background:
+    radial-gradient(circle at 30% 20%, rgba(168, 85, 247, 0.15) 0%, transparent 50%),
+    radial-gradient(circle at 70% 80%, rgba(168, 85, 247, 0.1) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
+}
+/* Cell grid pattern */
+.card[data-rarity="epic"] .card-art {
+  background:
+    linear-gradient(rgba(168, 85, 247, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(168, 85, 247, 0.08) 1px, transparent 1px);
+  background-size: 10px 10px;
+}
+.card[data-rarity="epic"] .card-gem {
+  background: radial-gradient(circle, #d8b4fe, #a855f7);
+  box-shadow: 0 0 12px rgba(168, 85, 247, 0.5);
+}
+.card[data-rarity="epic"] .card-rarity-label {
+  background: rgba(168, 85, 247, 0.2);
+  color: #d8b4fe;
+}
+/* Shimmer border */
+.card[data-rarity="epic"] .card-border-anim {
+  position: absolute;
+  top: -2px; left: -2px; right: -2px; bottom: -2px;
+  border-radius: 13px;
+  background: linear-gradient(135deg, #a855f7, #3b82f6, #a855f7);
+  background-size: 200% 200%;
+  z-index: -1;
+  animation: border-shimmer 3s ease-in-out infinite;
+}
+.card[data-rarity="epic"]:hover .card-glow {
+  box-shadow:
+    0 0 20px rgba(168, 85, 247, 0.5),
+    0 0 40px rgba(168, 85, 247, 0.2);
+}
+.card[data-rarity="epic"]:hover {
+  transform: translateY(-5px);
+}
+
+@keyframes border-shimmer {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* ---------- Legendary ---------- */
+.card[data-rarity="legendary"] .card-front {
+  background: linear-gradient(135deg, #713f12 0%, #0f172a 30%, #713f12 60%, #0f172a 100%);
+  border: 3px solid transparent;
+  position: relative;
+  overflow: hidden;
+}
+/* Gold particles overlay */
+.card[data-rarity="legendary"] .card-front::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background:
+    radial-gradient(1px 1px at 20% 30%, rgba(251, 191, 36, 0.6), transparent),
+    radial-gradient(1px 1px at 60% 50%, rgba(251, 191, 36, 0.4), transparent),
+    radial-gradient(1px 1px at 40% 70%, rgba(251, 191, 36, 0.5), transparent),
+    radial-gradient(1px 1px at 80% 20%, rgba(251, 191, 36, 0.3), transparent),
+    radial-gradient(1px 1px at 10% 80%, rgba(251, 191, 36, 0.4), transparent);
+  pointer-events: none;
+  z-index: 0;
+  animation: gold-particle-drift 4s ease-in-out infinite;
+}
+@keyframes gold-particle-drift {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+/* Legendary border glow (permanent) */
+.card[data-rarity="legendary"] .card-glow {
+  opacity: 1;
+  box-shadow:
+    0 0 15px rgba(251, 191, 36, 0.3),
+    0 0 30px rgba(251, 191, 36, 0.2),
+    0 0 50px rgba(251, 191, 36, 0.1);
+}
+
+/* Legendary border animation */
+.card[data-rarity="legendary"] .card-border-anim {
+  position: absolute;
+  top: -3px; left: -3px; right: -3px; bottom: -3px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #fbbf24, #d97706, #fbbf24, #d97706);
+  background-size: 300% 300%;
+  z-index: -1;
+  animation: legendary-border-flow 3s linear infinite;
+}
+@keyframes legendary-border-flow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.card[data-rarity="legendary"] .card-gem {
+  background: radial-gradient(circle, #fde68a, #fbbf24);
+  box-shadow:
+    0 0 15px rgba(251, 191, 36, 0.6),
+    inset 0 0 6px rgba(255, 255, 255, 0.5);
+  width: 24px;
+  height: 24px;
+  animation: gem-pulse 2s ease-in-out infinite;
+}
+@keyframes gem-pulse {
+  0%, 100% { box-shadow: 0 0 15px rgba(251, 191, 36, 0.6); }
+  50% { box-shadow: 0 0 25px rgba(251, 191, 36, 0.9); }
+}
+
+.card[data-rarity="legendary"] .card-rarity-label {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+  font-weight: 700;
+}
+
+/* Legendary play: full screen flash */
+.screen-flash {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(251, 191, 36, 0.3);
+  z-index: 300;
+  pointer-events: none;
+  animation: screen-flash-anim 500ms ease-out forwards;
+}
+@keyframes screen-flash-anim {
+  0% { opacity: 0; }
+  30% { opacity: 0.8; }
+  100% { opacity: 0; }
+}

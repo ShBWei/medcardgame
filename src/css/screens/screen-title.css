@@ -1,0 +1,171 @@
+/* ============================================================
+   MediCard Duel — Title Screen
+   Animated logo, main menu buttons
+   ============================================================ */
+
+#screen-title {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xl);
+  padding: var(--space-lg);
+  text-align: center;
+}
+
+/* Logo area */
+.title-logo {
+  position: relative;
+  margin-bottom: var(--space-sm);
+}
+
+.title-logo-icon {
+  font-size: 72px;
+  animation: logo-pulse 3s ease-in-out infinite;
+}
+@keyframes logo-pulse {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 10px rgba(6,182,212,0.3)); }
+  50% { transform: scale(1.05); filter: drop-shadow(0 0 25px rgba(6,182,212,0.6)); }
+}
+
+.title-game-name {
+  font-size: 36px;
+  font-weight: 900;
+  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-teal), var(--accent-cyan));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: 2px;
+}
+
+.title-subtitle {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-top: var(--space-sm);
+}
+
+.title-version {
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.6;
+  margin-top: 2px;
+}
+
+/* Menu buttons */
+.title-menu {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  width: 100%;
+  max-width: 300px;
+  margin-top: var(--space-lg);
+}
+
+.title-menu .btn {
+  padding: 14px 0;
+  font-size: 16px;
+}
+
+/* Floating particles on title screen */
+.title-particle {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: title-float-up 6s ease-in infinite;
+  opacity: 0;
+}
+
+@keyframes title-float-up {
+  0% {
+    opacity: 0;
+    transform: translateY(0) scale(0);
+  }
+  10% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  90% {
+    opacity: 0.1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-100vh) scale(0.5);
+  }
+}
+
+/* User bar on title */
+.title-user-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: var(--bg-tertiary);
+  border-radius: 24px;
+  border: 1px solid rgba(100, 116, 139, 0.15);
+}
+
+.title-user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+
+.title-user-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+/* Stats display on title */
+.title-stats {
+  display: flex;
+  gap: var(--space-lg);
+  margin-top: var(--space-sm);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.title-stats span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ---------- Mobile adjustments ---------- */
+@media (max-width: 480px) {
+  #screen-title {
+    padding: var(--space-md);
+    gap: var(--space-lg);
+  }
+  .title-logo-icon { font-size: 52px; }
+  .title-game-name { font-size: 26px; }
+  .title-subtitle { font-size: 12px; }
+  .title-version { font-size: 10px; }
+  .title-menu { max-width: 260px; gap: var(--space-sm); }
+  .title-menu .btn { padding: 12px 0; font-size: 14px; min-height: 46px; }
+  .title-stats { gap: var(--space-md); font-size: 11px; }
+}
+
+@media (max-width: 360px) {
+  .title-logo-icon { font-size: 42px; }
+  .title-game-name { font-size: 22px; }
+  .title-menu { max-width: 230px; }
+  .title-menu .btn { padding: 10px 0; font-size: 13px; min-height: 42px; }
+}
+
+/* Landscape */
+@media (max-height: 500px) and (orientation: landscape) {
+  #screen-title {
+    gap: var(--space-sm);
+    padding: var(--space-sm);
+  }
+  .title-logo-icon { font-size: 36px; }
+  .title-game-name { font-size: 22px; }
+  .title-logo { margin-bottom: 0; }
+  .title-menu { margin-top: 0; max-width: 400px; flex-direction: row; flex-wrap: wrap; justify-content: center; }
+  .title-menu .btn { flex: 1; min-width: 120px; }
+}

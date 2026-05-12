@@ -1,0 +1,42 @@
+/* ============================================================
+   MediCard Duel — Card 3D Flip
+   Uses transform-style: preserve-3d + backface-visibility: hidden
+   ============================================================ */
+
+.card-3d-container {
+  perspective: 1000px;
+}
+
+.card-3d-container .card-inner {
+  transform-style: preserve-3d;
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card-3d-container.flipped .card-inner {
+  transform: rotateY(180deg);
+}
+
+/* Ensure backface-visibility is set for all card faces */
+.card-3d-container .card-front,
+.card-3d-container .card-back {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.card-3d-container .card-back {
+  transform: rotateY(180deg);
+}
+
+/* Hover tilt effect */
+.card-3d-container.tilt-left .card-inner {
+  transform: rotateY(-8deg) rotateX(3deg);
+}
+.card-3d-container.tilt-right .card-inner {
+  transform: rotateY(8deg) rotateX(3deg);
+}
+.card-3d-container.tilt-up .card-inner {
+  transform: rotateX(-8deg);
+}
+.card-3d-container.tilt-down .card-inner {
+  transform: rotateX(8deg);
+}

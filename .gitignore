@@ -1,0 +1,7 @@
+node_modules/
+dist/
+production/session-logs/
+*.pdf
+.DS_Store
+Thumbs.db
+*.log

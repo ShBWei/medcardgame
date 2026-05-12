@@ -1,0 +1,61 @@
+/* ============================================================
+   MediCard Duel — Particle Effects
+   Floating particles, burst effects
+   ============================================================ */
+
+.particle-container {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  pointer-events: none;
+  z-index: 200;
+}
+
+.particle {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: particle-float 2s ease-out forwards;
+}
+
+.particle-gold {
+  background: var(--accent-yellow);
+  box-shadow: 0 0 6px rgba(251,191,36,0.8);
+}
+
+.particle-cyan {
+  background: var(--accent-cyan);
+  box-shadow: 0 0 6px rgba(6,182,212,0.8);
+}
+
+.particle-purple {
+  background: var(--accent-purple);
+  box-shadow: 0 0 6px rgba(168,85,247,0.8);
+}
+
+.particle-red {
+  background: var(--accent-red);
+  box-shadow: 0 0 6px rgba(239,68,68,0.8);
+}
+
+.particle-green {
+  background: var(--accent-green);
+  box-shadow: 0 0 6px rgba(16,185,129,0.8);
+}
+
+@keyframes particle-float {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--tx), var(--ty)) scale(0);
+  }
+}
+
+/* Burst container */
+.particle-burst {
+  position: absolute;
+  pointer-events: none;
+  z-index: 201;
+}

@@ -1,0 +1,472 @@
+/**
+ * MediCard Community — UI Styles (V1.0)
+ * Modals, tabs, rankings, forms, toasts
+ */
+
+/* ============ Modal Overlay ============ */
+.mkc-overlay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+}
+
+.mkc-modal {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.97));
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 16px;
+  padding: 20px;
+  color: var(--text-primary, #e2e8f0);
+  font-size: 13px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+/* ============ Header ============ */
+.mkc-lb-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.mkc-lb-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.mkc-close-btn {
+  font-size: 18px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  line-height: 32px;
+}
+
+/* ============ Tabs ============ */
+.mkc-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 10px;
+  padding: 4px;
+}
+
+.mkc-tab {
+  flex: 1;
+  padding: 8px 6px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: var(--text-muted, #94a3b8);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.mkc-tab:hover {
+  color: var(--text-primary, #e2e8f0);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.mkc-tab.active {
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+  font-weight: 600;
+}
+
+/* ============ Period Toggle ============ */
+.mkc-period-toggle {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.mkc-period-btn {
+  flex: 1;
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.1);
+  border-radius: 6px;
+  color: var(--text-muted, #94a3b8);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mkc-period-btn.active {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.3);
+  color: #a5b4fc;
+  font-weight: 600;
+}
+
+/* ============ Rankings ============ */
+.mkc-rankings {
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+.mkc-rank-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 4px;
+  background: rgba(0, 0, 0, 0.1);
+  transition: background 0.2s;
+}
+
+.mkc-rank-item:hover {
+  background: rgba(99, 102, 241, 0.06);
+}
+
+.mkc-is-me {
+  background: rgba(59, 130, 246, 0.1) !important;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.mkc-rank-badge {
+  width: 36px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.mkc-medal {
+  font-size: 22px;
+}
+
+.mkc-rank-num {
+  font-size: 14px;
+  color: var(--text-muted, #94a3b8);
+  font-weight: 600;
+}
+
+.mkc-rank-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mkc-rank-name {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mkc-name-gold {
+  color: #fbbf24;
+}
+
+.mkc-rank-detail {
+  font-size: 11px;
+  color: var(--text-muted, #94a3b8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mkc-rank-score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.mkc-rank-score b {
+  font-size: 18px;
+  color: #a5b4fc;
+}
+
+.mkc-rank-score small {
+  font-size: 10px;
+  color: var(--text-muted, #94a3b8);
+}
+
+.mkc-rank-divider {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted, #64748b);
+  padding: 8px 0;
+  border-top: 1px dashed rgba(99, 102, 241, 0.15);
+  margin-top: 8px;
+}
+
+.mkc-share-btn {
+  flex-shrink: 0;
+  font-size: 14px;
+  padding: 4px 8px;
+}
+
+.mkc-empty {
+  text-align: center;
+  padding: 32px 16px;
+  color: var(--text-muted, #94a3b8);
+  font-size: 14px;
+}
+
+.mkc-empty small {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+}
+
+/* ============ Challenge Modal ============ */
+.mkc-ch-opt {
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text-primary, #e2e8f0);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.mkc-ch-opt:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+.mkc-ch-opt:disabled {
+  cursor: not-allowed;
+  opacity: 0.8;
+}
+
+/* ============ Forms ============ */
+.mkc-form-section {
+  padding: 4px 0;
+}
+
+.mkc-daily-info {
+  font-size: 12px;
+  color: var(--text-muted, #94a3b8);
+  margin-bottom: 10px;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+}
+
+.mkc-daily-info b {
+  color: #a5b4fc;
+}
+
+.mkc-field {
+  margin-bottom: 12px;
+}
+
+.mkc-field label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted, #94a3b8);
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.mkc-select,
+.mkc-textarea,
+.mkc-opt-input {
+  width: 100%;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: 8px;
+  color: var(--text-primary, #e2e8f0);
+  font-size: 13px;
+  font-family: inherit;
+  box-sizing: border-box;
+  transition: border-color 0.2s;
+}
+
+.mkc-select:focus,
+.mkc-textarea:focus,
+.mkc-opt-input:focus {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+.mkc-select {
+  appearance: none;
+  cursor: pointer;
+}
+
+.mkc-textarea {
+  resize: vertical;
+  min-height: 56px;
+}
+
+/* ============ Option Rows ============ */
+.mkc-opt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.mkc-opt-letter {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(99, 102, 241, 0.15);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #a5b4fc;
+  flex-shrink: 0;
+}
+
+.mkc-opt-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.mkc-opt-correct-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted, #94a3b8);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* ============ Review Cards ============ */
+.mkc-review-card {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(99, 102, 241, 0.1);
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.mkc-review-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text-muted, #94a3b8);
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.mkc-badge-subject {
+  display: inline-block;
+  padding: 2px 8px;
+  background: rgba(6, 182, 212, 0.15);
+  border-radius: 4px;
+  color: #67e8f9;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.mkc-review-question {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.6;
+  margin-bottom: 10px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+}
+
+.mkc-review-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mkc-review-opt {
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.mkc-review-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* ============ My Questions ============ */
+.mkc-my-q-item {
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  margin-bottom: 6px;
+}
+
+/* ============ Proposals ============ */
+.mkc-proposal-card {
+  background: rgba(0, 0, 0, 0.15);
+  border: 1px solid rgba(249, 115, 22, 0.15);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 8px;
+}
+
+/* ============ Leaderboard Specific ============ */
+.mkc-rank-item .mkc-rank-badge {
+  width: 40px;
+  text-align: center;
+}
+
+/* ============ Responsive ============ */
+@media (max-width: 480px) {
+  .mkc-modal {
+    padding: 14px;
+    border-radius: 12px;
+  }
+
+  .mkc-lb-header h3 {
+    font-size: 16px;
+  }
+
+  .mkc-tab {
+    font-size: 11px;
+    padding: 6px 4px;
+  }
+
+  .mkc-rank-name {
+    font-size: 13px;
+  }
+
+  .mkc-rank-score b {
+    font-size: 16px;
+  }
+
+  .mkc-review-question {
+    font-size: 14px;
+  }
+
+  .mkc-review-actions {
+    flex-wrap: wrap;
+  }
+}
+
+/* ============ Scrollbar Styling ============ */
+.mkc-rankings::-webkit-scrollbar,
+.mkc-modal::-webkit-scrollbar {
+  width: 4px;
+}
+
+.mkc-rankings::-webkit-scrollbar-track,
+.mkc-modal::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.mkc-rankings::-webkit-scrollbar-thumb,
+.mkc-modal::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.2);
+  border-radius: 2px;
+}

@@ -1,0 +1,152 @@
+/* ============================================================
+   MediCard Duel — Card Animations
+   Play, discard, draw, and hand fan animations
+   ============================================================ */
+
+/* Card play animation */
+.card-playing {
+  animation: card-play-out 400ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+@keyframes card-play-out {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: translate(100px, -50px) scale(1.3);
+    opacity: 1;
+    z-index: 50;
+  }
+  100% {
+    transform: translate(200px, -100px) scale(0.8);
+    opacity: 0;
+  }
+}
+
+/* Card draw animation */
+.card-drawing {
+  animation: card-draw-in 300ms ease-out forwards;
+}
+@keyframes card-draw-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-40px) scale(0.8);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Card discard animation */
+.card-discarding {
+  animation: card-discard-out 300ms ease-in forwards;
+}
+@keyframes card-discard-out {
+  0% {
+    opacity: 1;
+    transform: translateY(0) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(80px) rotate(20deg);
+  }
+}
+
+/* Screen shake */
+.screen-shake {
+  animation: screen-shake-anim 300ms ease-out;
+}
+@keyframes screen-shake-anim {
+  0%, 100% { transform: translate(0); }
+  10% { transform: translate(-4px, 2px); }
+  20% { transform: translate(4px, -2px); }
+  30% { transform: translate(-3px, -1px); }
+  40% { transform: translate(3px, 1px); }
+  50% { transform: translate(-2px, 2px); }
+  60% { transform: translate(2px, -2px); }
+  70% { transform: translate(-1px, 1px); }
+  80% { transform: translate(1px, -1px); }
+  90% { transform: translate(-0.5px, 0.5px); }
+}
+
+/* Hand fan positioning — controlled by JS */
+.hand-cards {
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  padding: 10px 20px 20px;
+  min-height: 260px;
+  position: relative;
+}
+
+.hand-cards .card {
+  transform-origin: bottom center;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), margin 0.3s ease, box-shadow 0.3s ease;
+  margin-left: -30px;
+  transform: rotate(var(--fan-angle, 0deg)) translateY(var(--fan-lift, 0px)) scale(var(--fan-scale, 1));
+  z-index: var(--fan-idx, 1);
+}
+
+.hand-cards .card:first-child {
+  margin-left: 0;
+}
+
+.hand-cards .card:hover {
+  transform: rotate(var(--fan-angle, 0deg)) translateY(calc(var(--fan-lift, 0px) - 25px)) scale(1.08);
+  z-index: 50;
+  box-shadow: 0 0 18px rgba(6,182,212,0.5);
+}
+
+.hand-cards .card:hover ~ .card {
+  margin-left: 20px;
+}
+
+@media (max-width: 768px) {
+  .hand-cards {
+    min-height: 200px;
+    padding: 5px 10px 15px;
+  }
+  .hand-cards .card {
+    margin-left: -35px;
+  }
+  .hand-cards .card:hover {
+    transform: rotate(var(--fan-angle, 0deg)) translateY(calc(var(--fan-lift, 0px) - 20px)) scale(1.08);
+  }
+}
+
+@media (max-width: 480px) {
+  .hand-cards {
+    min-height: 175px;
+    padding: 4px 6px 10px;
+  }
+  .hand-cards .card {
+    margin-left: -30px;
+  }
+  /* Reduce hover lift on mobile — touch doesn't hover */
+  .hand-cards .card:active {
+    transform: rotate(var(--fan-angle, 0deg)) translateY(calc(var(--fan-lift, 0px) - 15px)) scale(1.05);
+    z-index: 50;
+  }
+}
+
+@media (max-width: 360px) {
+  .hand-cards {
+    min-height: 155px;
+    padding: 3px 4px 8px;
+  }
+  .hand-cards .card {
+    margin-left: -25px;
+  }
+}
+
+/* Landscape — cards can be more compact */
+@media (max-height: 500px) and (orientation: landscape) {
+  .hand-cards {
+    min-height: 140px;
+    padding: 3px 10px 8px;
+  }
+  .hand-cards .card {
+    margin-left: -30px;
+  }
+}

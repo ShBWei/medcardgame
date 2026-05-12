@@ -1,0 +1,639 @@
+# MediCard Duel: 三国杀医学卡牌对决
+# 完整设计方案 V4.0 — 模块化架构 + 精确科目选择 + 极致卡牌美化
+# 专为 Claude Code 生成
+# ================================================================
+
+【项目概述】
+游戏名称：MediCard Duel: Three Kingdoms Edition
+核心目标：通过三国杀式卡牌对战，高效复习基础医学知识，支持多人实时联机
+设计原则：答题=唯一胜利手段 | 题目100%权威 | 零门槛联机 | 极致视觉体验 | 模块化可扩展
+技术栈：HTML5 + CSS3 + Vanilla JavaScript + PeerJS (WebRTC P2P)
+目标平台：手机优先，完美兼容桌面端
+部署方式：GitHub Pages 单文件 HTML + 后期一键迁移服务器
+题库规模：2160道题（20个学科，模块化题库系统）
+
+【模块化架构设计 — 必须严格执行】
+
+项目采用"模块化开发 → 构建合并为单文件"的架构：
+
+开发时文件结构（模块化）：
+MediCard-Duel/
+├── 📁 src/
+│   ├── 📁 modules/                    # 核心模块（独立可替换）
+│   │   ├── 📁 question-bank/        # 【题目系统模块】★重点★
+│   │   │   ├── 📁 subjects/         # 学科题目文件夹
+│   │   │   │   ├── cell-biology.js  # 细胞生物学120题
+│   │   │   │   ├── biochemistry.js  # 生物化学120题
+│   │   │   │   ├── pathology.js   # 病理学120题
+│   │   │   │   ├── physiology.js  # 生理学120题
+│   │   │   │   ├── pharmacology.js # 药理学120题
+│   │   │   │   ├── immunology.js  # 免疫学120题
+│   │   │   │   ├── internal-medicine.js # 内科学120题
+│   │   │   │   ├── surgery.js     # 外科学120题
+│   │   │   │   ├── obstetrics.js  # 妇产科学120题
+│   │   │   │   ├── pediatrics.js  # 儿科学120题
+│   │   │   │   ├── ent.js         # 五官科学120题
+│   │   │   │   ├── neurology.js   # 神经病学120题
+│   │   │   │   ├── microbiology.js # 医学微生物120题
+│   │   │   │   ├── lab-medicine.js # 医学检验120题
+│   │   │   │   ├── epidemiology.js # 流行病学120题
+│   │   │   │   ├── medical-ethics.js # 医学伦理120题
+│   │   │   │   ├── exam-real.js   # 竞赛真题60题
+│   │   │   │   ├── textbook-key.js # 教材重点60题
+│   │   │   │   ├── physician-exam.js # 执业医师60题
+│   │   │   │   └── comprehensive.js # 综合应用60题
+│   │   │   ├── question-loader.js   # 题目加载器（按需加载）
+│   │   │   ├── question-validator.js # 题目验证器
+│   │   │   └── README.md           # 【题目添加指南】★
+│   │   ├── 📁 game-core/            # 游戏核心模块
+│   │   │   ├── game-state.js        # 状态机
+│   │   │   ├── turn-system.js       # 回合系统
+│   │   │   ├── resource-system.js   # 三维资源（HP/MP/KP）
+│   │   │   └── victory-condition.js # 胜利条件
+│   │   ├── 📁 card-system/          # 卡牌系统模块
+│   │   │   ├── card-data.js         # 卡牌数据定义
+│   │   │   ├── card-effects.js      # 卡牌效果实现
+│   │   │   ├── card-visuals.js      # 卡牌渲染（含3D翻转）
+│   │   │   └── card-animations.js   # 卡牌动画系统
+│   │   ├── 📁 identity-system/      # 身份系统模块
+│   │   │   ├── identity-data.js     # 身份数据（主公/忠臣/反贼/内奸）
+│   │   │   ├── identity-skills.js   # 身份技能
+│   │   │   └── identity-ui.js       # 身份显示
+│   │   ├── 📁 network/              # 网络模块
+│   │   │   ├── p2p-host.js          # Host逻辑
+│   │   │   ├── p2p-client.js        # Client逻辑
+│   │   │   ├── room-manager.js      # 房间管理
+│   │   │   └── sync-protocol.js     # 同步协议
+│   │   ├── 📁 ui-system/            # UI系统模块
+│   │   │   ├── screen-title.js      # 标题屏幕
+│   │   │   ├── screen-lobby.js      # 大厅屏幕
+│   │   │   ├── screen-battle.js     # 战斗界面
+│   │   │   ├── screen-deck.js       # 卡组构建
+│   │   │   ├── screen-result.js     # 结果界面
+│   │   │   ├── screen-subject.js    # 【科目选择界面】★重点★
+│   │   │   └── components/          # 通用组件
+│   │   │       ├── card-component.js # 卡牌组件
+│   │   │       ├── question-popup.js # 题目弹窗
+│   │   │       ├── player-panel.js  # 玩家面板
+│   │   │       └── timer-component.js # 计时器
+│   │   ├── 📁 audio-system/         # 音效模块
+│   │   │   └── audio-generator.js   # Web Audio API生成器
+│   │   ├── 📁 storage/              # 存储模块
+│   │   │   ├── local-storage.js     # LocalStorage封装
+│   │   │   └── data-compressor.js   # LZ-string压缩
+│   │   └── 📁 config/               # 配置模块
+│   │       └── deploy-config.js     # 部署配置（一键迁移）
+│   ├── 📁 css/                      # 样式模块
+│   │   ├── 📁 themes/             # 主题系统
+│   │   │   ├── default-theme.css    # 默认赛博医学主题
+│   │   │   └── dark-theme.css       # 深色主题
+│   │   ├── 📁 cards/              # 卡牌样式
+│   │   │   ├── card-base.css        # 卡牌基础样式
+│   │   │   ├── card-rarity.css      # 稀有度样式
+│   │   │   ├── card-3d-flip.css     # 3D翻转样式
+│   │   │   ├── card-subjects.css    # 学科专属样式
+│   │   │   └── card-animations.css  # 卡牌动画
+│   │   ├── 📁 screens/            # 屏幕样式
+│   │   │   ├── screen-title.css
+│   │   │   ├── screen-lobby.css
+│   │   │   ├── screen-battle.css
+│   │   │   └── screen-subject.css   # 【科目选择样式】★
+│   │   ├── 📁 components/         # 组件样式
+│   │   │   ├── glassmorphism.css    # 玻璃拟态
+│   │   │   ├── buttons.css          # 按钮系统
+│   │   │   ├── particles.css        # 粒子特效
+│   │   │   └── damage-numbers.css   # 伤害数字
+│   │   └── 📁 animations/         # 动画库
+│   │       ├── keyframes.css        # 关键帧定义
+│   │       ├── transitions.css      # 过渡效果
+│   │       └── particle-effects.css # 粒子效果
+│   └── 📁 assets/                   # 资源（CSS绘制图形）
+│       └── 📁 patterns/             # 背景纹理
+├── 📁 server/                       # 服务器端（可选）
+│   ├── docker-compose.yml
+│   ├── 📁 signaling/
+│   └── 📁 api/
+├── 📁 tools/                        # 构建工具
+│   ├── build.js                     # 合并为单文件
+│   ├── build-watch.js               # 开发模式热更新
+│   └── deploy.sh                    # 一键部署
+├── 📁 dist/                         # 构建输出
+│   └── index.html                   # 单文件产物
+├── index.html                       # 开发入口
+├── package.json
+└── README.md
+
+构建后产物（单文件）：
+- dist/index.html — 包含所有模块合并后的完整游戏
+- 所有题目数据内嵌在HTML中，但保留模块化注释标记
+
+【题目系统模块化设计 — ★核心重点★】
+
+1. 题目文件位置（方便修改添加）：
+   src/modules/question-bank/subjects/
+   ├── cell-biology.js      ← 修改这里添加细胞生物学题目
+   ├── biochemistry.js      ← 修改这里添加生物化学题目
+   ├── pathology.js         ← 修改这里添加病理学题目
+   ├── ...（共20个文件）
+   └── comprehensive.js     ← 修改这里添加综合应用题目
+
+2. 题目文件标准格式（每个.js文件）：
+   /**
+    * 【学科名称】题目集
+    * 文件位置：src/modules/question-bank/subjects/xxx.js
+    * 添加题目方法：在 QUESTIONS 数组中追加新对象
+    * 注意事项：
+    *   1. id格式：学科缩写-难度-序号，如 "pathology-legend-001"
+    *   2. 难度：common(60题) / rare(36题) / epic(18题) / legendary(6题)
+    *   3. 必须包含：question, options, correctAnswers, explanation
+    *   4. 传说卡题目必须是该学科最具代表性的难点
+    */
+
+   const SUBJECT_NAME = "病理学";
+   const SUBJECT_ID = "pathology";
+   const SUBJECT_COLOR = "#ef4444";
+   const SUBJECT_ICON = "🦠";
+
+   const QUESTIONS = [
+     // ========== 普通题 (60题) ==========
+     {
+       id: "pathology-common-001",
+       subject: SUBJECT_NAME,
+       subjectId: SUBJECT_ID,
+       difficulty: "common",
+       // ... 题目数据
+     },
+     // ... 更多普通题
+
+     // ========== 稀有题 (36题) ==========
+     {
+       id: "pathology-rare-001",
+       difficulty: "rare",
+       // ...
+     },
+     // ... 更多稀有题
+
+     // ========== 史诗题 (18题) ==========
+     {
+       id: "pathology-epic-001",
+       difficulty: "epic",
+       // ...
+     },
+     // ... 更多史诗题
+
+     // ========== 传说题 (6题) ==========
+     {
+       id: "pathology-legend-001",
+       difficulty: "legendary",
+       cardType: "attack",
+       cardName: "恶性肿瘤转移",
+       energyCost: 3,
+       cardEffect: "造成10点伤害，无视护盾",
+       // ... 题目数据
+     },
+     // ... 更多传说题
+   ];
+
+   // 导出
+   if (typeof module !== 'undefined' && module.exports) {
+     module.exports = { SUBJECT_NAME, SUBJECT_ID, SUBJECT_COLOR, SUBJECT_ICON, QUESTIONS };
+   } else {
+     window.QuestionBank = window.QuestionBank || {};
+     window.QuestionBank[SUBJECT_ID] = QUESTIONS;
+   }
+
+3. 题目添加指南（README.md）：
+   # 题目添加指南
+
+   ## 快速添加题目步骤
+
+   1. 找到对应学科文件：`src/modules/question-bank/subjects/学科名.js`
+   2. 在 QUESTIONS 数组末尾添加新题目对象
+   3. 确保 id 唯一，格式：`学科缩写-难度-序号`
+   4. 运行 `node tools/build.js` 重新构建
+   5. 刷新浏览器即可看到新题目
+
+   ## 题目对象模板
+
+   ```javascript
+   {
+     id: "pathology-common-999",           // 唯一标识
+     subject: "病理学",                   // 学科名称
+     subjectId: "pathology",              // 学科ID
+     difficulty: "common",                // common/rare/epic/legendary
+     questionType: "single",              // single/multiple/truefalse
+     cardType: "attack",                // attack/defense/heal/etc.
+     cardName: "卡牌名称",               // 绑定的卡牌名称
+     energyCost: 1,                     // 能量消耗
+     cardEffect: "效果描述",             // 卡牌效果
+     question: "题干内容？",             // 题目
+     options: ["A. xxx", "B. xxx", "C. xxx", "D. xxx"],  // 选项
+     correctAnswers: ["D"],             // 正确答案（多选为数组）
+     explanation: "解析内容",            // 详细解析
+     textbookReference: "人卫第10版《病理学》P108",  // 教材引用
+     knowledgePoint: "知识点名称",      // 知识点
+     tags: ["标签1", "标签2"]           // 标签
+   }
+   ```
+
+   ## 批量导入工具
+
+   提供 Excel/CSV 转 JSON 脚本：`tools/import-questions.js`
+
+   ```bash
+   # 从Excel导入题目
+   node tools/import-questions.js --input questions.xlsx --subject pathology
+   ```
+
+4. 题目加载器（按需加载）：
+   ```javascript
+   // src/modules/question-bank/question-loader.js
+
+   class QuestionLoader {
+     constructor() {
+       this.loadedSubjects = new Set();
+       this.questionCache = new Map();
+       this.compressedCache = null;
+     }
+
+     // 加载指定学科
+     async loadSubject(subjectId) {
+       if (this.loadedSubjects.has(subjectId)) {
+         return this.questionCache.get(subjectId);
+       }
+
+       // 从内嵌数据或异步获取
+       const questions = await this.fetchSubjectData(subjectId);
+
+       // 缓存
+       this.questionCache.set(subjectId, questions);
+       this.loadedSubjects.add(subjectId);
+
+       return questions;
+     }
+
+     // 批量加载多个学科
+     async loadSubjects(subjectIds) {
+       const promises = subjectIds.map(id => this.loadSubject(id));
+       return Promise.all(promises);
+     }
+
+     // 获取指定难度的题目
+     getQuestionsByDifficulty(subjectId, difficulty) {
+       const questions = this.questionCache.get(subjectId) || [];
+       return questions.filter(q => q.difficulty === difficulty);
+     }
+
+     // 随机获取题目（用于出题）
+     getRandomQuestion(subjectIds, difficulty, excludeIds = []) {
+       const allQuestions = [];
+       subjectIds.forEach(id => {
+         const questions = this.questionCache.get(id) || [];
+         allQuestions.push(...questions);
+       });
+
+       const filtered = allQuestions.filter(q => 
+         q.difficulty === difficulty && 
+         !excludeIds.includes(q.id)
+       );
+
+       return filtered[Math.floor(Math.random() * filtered.length)];
+     }
+   }
+   ```
+
+【科目选择系统 — 精确到学科级别】
+
+1. 选择粒度：
+   - 精确到每个学科（20个学科独立开关）
+   - 不是"选择基础医学"，而是"选择细胞生物学、生物化学..."
+   - 每个学科有独立复选框，可自由组合
+
+2. 选择界面设计（优化版）：
+   ┌─────────────────────────────────────────────┐
+   │  📚 科目选择（精确到学科）                  │
+   │  已选：8/20 科    预计题量：960题           │
+   ├─────────────────────────────────────────────┤
+   │                                             │
+   │  ▼ 基础医学（点击展开/收起）                 │
+   │  ┌─────────────────────────────────────┐   │
+   │  │ ☑️ 🧬 细胞生物学    120题  [详情▶] │   │
+   │  │ ☑️ ⚗️ 生物化学      120题  [详情▶] │   │
+   │  │ ☐  🦠 病理学        120题  [详情▶] │   │
+   │  │ ☑️ ❤️ 生理学        120题  [详情▶] │   │
+   │  │ ☐  💊 药理学        120题  [详情▶] │   │
+   │  │ ☐  🛡️ 免疫学        120题  [详情▶] │   │
+   │  └─────────────────────────────────────┘   │
+   │                                             │
+   │  ▶ 临床医学（6科，0/6选中）                │
+   │                                             │
+   │  ▶ 交叉学科（4科，0/4选中）                │
+   │                                             │
+   │  ▶ 竞赛专题（4科，0/4选中）                │
+   │                                             │
+   ├─────────────────────────────────────────────┤
+   │  [快速选择] [全选] [反选] [重置]           │
+   ├─────────────────────────────────────────────┤
+   │  📊 当前选择统计：                          │
+   │  题量分布：普通480 | 稀有288 | 史诗144      │
+   │  传说卡：8张（每科1张）                     │
+   │  预计游戏时长：15-20分钟                     │
+   ├─────────────────────────────────────────────┤
+   │  [确认选择] [取消]                           │
+   └─────────────────────────────────────────────┘
+
+3. 快速选择按钮：
+   - 大一基础包：细胞生物学+生物化学+生理学（360题）
+   - 大二核心包：病理学+药理学+免疫学（360题）
+   - 大三临床包：内科学+外科学+妇产科学（360题）
+   - 大四综合包：儿科学+神经病学+五官科学（360题）
+   - 执业医师包：内+外+妇+儿+药（600题）
+   - 竞赛全能包：全部20科（2160题）
+   - 自定义：上次保存的选择
+
+4. 学科详情弹窗：
+   点击[详情▶]显示：
+   - 该学科题目难度分布饼图
+   - 知识点覆盖列表
+   - 传说卡预览
+   - 最近练习正确率
+
+5. 单机/联机统一选择逻辑：
+   ```javascript
+   // 统一选择接口
+   class SubjectSelector {
+     constructor(mode) {  // 'single' | 'multiplayer'
+       this.mode = mode;
+       this.selectedSubjects = new Set();
+     }
+
+     // 选择学科（单机/联机通用）
+     selectSubject(subjectId) {
+       this.selectedSubjects.add(subjectId);
+       this.updateUI();
+       this.saveSelection();
+
+       // 联机模式：同步给其他玩家
+       if (this.mode === 'multiplayer' && this.isHost) {
+         this.broadcastSelection();
+       }
+     }
+
+     // 取消选择
+     deselectSubject(subjectId) {
+       this.selectedSubjects.delete(subjectId);
+       this.updateUI();
+       this.saveSelection();
+
+       if (this.mode === 'multiplayer' && this.isHost) {
+         this.broadcastSelection();
+       }
+     }
+
+     // 获取已选题量统计
+     getSelectionStats() {
+       const stats = {
+         totalQuestions: 0,
+         byDifficulty: { common: 0, rare: 0, epic: 0, legendary: 0 },
+         bySubject: {}
+       };
+
+       this.selectedSubjects.forEach(subjectId => {
+         const questions = QuestionLoader.getSubject(subjectId);
+         stats.totalQuestions += questions.length;
+         questions.forEach(q => {
+           stats.byDifficulty[q.difficulty]++;
+         });
+         stats.bySubject[subjectId] = questions.length;
+       });
+
+       return stats;
+     }
+
+     // 保存选择（单机：localStorage；联机：同步到Host）
+     saveSelection() {
+       localStorage.setItem('medicard_selected_subjects', 
+         JSON.stringify([...this.selectedSubjects]));
+     }
+
+     // 恢复上次选择
+     restoreSelection() {
+       const saved = localStorage.getItem('medicard_selected_subjects');
+       if (saved) {
+         this.selectedSubjects = new Set(JSON.parse(saved));
+       }
+     }
+   }
+   ```
+
+【卡牌设计美化 — 极致视觉升级】
+
+1. 卡牌尺寸与比例（黄金比例）：
+   - 标准卡牌：宽160px × 高240px（比例2:3）
+   - 手机端：宽120px × 高180px
+   - 传说卡：宽180px × 高270px（突出尊贵感）
+
+2. 卡牌材质系统（CSS实现）：
+   普通卡：
+   - 背景：linear-gradient(135deg, #1e293b 0%, #0f172a 100%)
+   - 边框：1px solid rgba(100, 116, 139, 0.3)
+   - 无发光效果
+
+   稀有卡：
+   - 背景：linear-gradient(135deg, #1e3a5f 0%, #0f172a 50%, #1e3a5f 100%)
+   - 边框：2px solid transparent + background-clip + border-image
+     linear-gradient(135deg, #00d4ff, #3b82f6) 1
+   - 悬停：box-shadow: 0 0 15px rgba(0, 212, 255, 0.4)
+
+   史诗卡：
+   - 背景：linear-gradient(135deg, #2e1065 0%, #0f172a 50%, #2e1065 100%)
+     + 背景纹理（CSS radial-gradient模拟细胞网格）
+   - 边框：2px solid transparent + 动态流光动画
+   - 悬停：上浮5px + 边框流光速度加快
+   - 特效：背景纹理缓慢移动动画
+
+   传说卡：
+   - 背景：linear-gradient(135deg, #713f12 0%, #0f172a 30%, #713f12 60%, #0f172a 100%)
+     + 金色粒子背景（CSS动画模拟）
+   - 边框：3px solid transparent + 循环流光
+   - 永久特效：box-shadow: 
+     0 0 20px rgba(251, 191, 36, 0.3),
+     0 0 40px rgba(251, 191, 36, 0.2),
+     0 0 60px rgba(251, 191, 36, 0.1)
+   - 打出特效：全屏金色闪光（@keyframes screen-flash）
+
+3. 学科符号动态效果（CSS动画）：
+   细胞生物学（DNA双螺旋）：
+   ```css
+   @keyframes dna-rotate {
+     0% { transform: rotateY(0deg); }
+     100% { transform: rotateY(360deg); }
+   }
+   .subject-icon-cell-biology {
+     animation: dna-rotate 8s linear infinite;
+     transform-style: preserve-3d;
+   }
+   ```
+
+   生理学（心跳脉冲）：
+   ```css
+   @keyframes heartbeat {
+     0%, 100% { transform: scale(1); }
+     14% { transform: scale(1.1); }
+     28% { transform: scale(1); }
+     42% { transform: scale(1.1); }
+   }
+   .subject-icon-physiology {
+     animation: heartbeat 1.5s ease-in-out infinite;
+   }
+   ```
+
+   病理学（腐蚀扩散）：
+   ```css
+   @keyframes corrosion {
+     0% { filter: brightness(1) contrast(1); }
+     50% { filter: brightness(1.2) contrast(1.3); }
+     100% { filter: brightness(1) contrast(1); }
+   }
+   .subject-icon-pathology {
+     animation: corrosion 3s ease-in-out infinite;
+   }
+   ```
+
+4. 卡牌打出特效链：
+   步骤1：卡牌从手牌飞出
+   - transform: translateX(0) translateY(0) scale(1)
+   - → transform: translateX(200px) translateY(-100px) scale(1.2)
+   - 时长：300ms，缓动：cubic-bezier(0.34, 1.56, 0.64, 1)
+
+   步骤2：到达战场，触发效果
+   - 屏幕震动：@keyframes screen-shake（随机偏移5px，持续200ms）
+   - 伤害数字弹出：从卡牌位置向上飘出，放大后消散
+
+   步骤3：传说卡特殊处理
+   - 全屏闪光：白色遮罩透明度0→0.8→0，时长500ms
+   - 金色粒子爆发：从卡牌位置向四周散射
+   - 音效：和弦播放（Web Audio API多振荡器）
+
+5. 手牌扇形排列（手机端优化）：
+   ```css
+   .hand-cards {
+     display: flex;
+     justify-content: center;
+     align-items: flex-end;
+     gap: -20px;  /* 负间距实现重叠 */
+     padding-bottom: 20px;
+   }
+
+   .hand-card {
+     transform-origin: bottom center;
+     transition: all 0.3s ease;
+   }
+
+   /* 扇形效果：中间卡牌直立，两侧倾斜 */
+   .hand-card:nth-child(1) { transform: rotate(-15deg) translateY(10px); }
+   .hand-card:nth-child(2) { transform: rotate(-8deg) translateY(5px); }
+   .hand-card:nth-child(3) { transform: rotate(0deg); }
+   .hand-card:nth-child(4) { transform: rotate(8deg) translateY(5px); }
+   .hand-card:nth-child(5) { transform: rotate(15deg) translateY(10px); }
+
+   /* 悬停时突出显示 */
+   .hand-card:hover {
+     transform: rotate(0deg) translateY(-30px) scale(1.1);
+     z-index: 10;
+   }
+   ```
+
+6. 伤害数字动画：
+   ```css
+   @keyframes damage-pop {
+     0% { 
+       opacity: 0; 
+       transform: translateY(0) scale(0.5); 
+     }
+     20% { 
+       opacity: 1; 
+       transform: translateY(-20px) scale(1.2); 
+     }
+     100% { 
+       opacity: 0; 
+       transform: translateY(-60px) scale(1); 
+     }
+   }
+
+   .damage-number {
+     position: absolute;
+     font-size: 32px;
+     font-weight: bold;
+     color: #f43f5e;
+     text-shadow: 0 0 10px rgba(244, 63, 94, 0.8);
+     animation: damage-pop 1s ease-out forwards;
+     pointer-events: none;
+   }
+
+   .damage-number.critical {
+     font-size: 48px;
+     color: #fbbf24;
+     text-shadow: 
+       0 0 10px rgba(251, 191, 36, 0.8),
+       0 0 20px rgba(251, 191, 36, 0.4);
+   }
+   ```
+
+【游戏体验优化清单】
+
+1. 启动优化：
+   - 首屏加载：只加载标题屏幕和基础配置（<50KB）
+   - 后台预加载：进入标题屏幕后，异步加载基础学科720题
+   - 进度条：显示加载进度，可跳过（使用默认题库）
+
+2. 交互优化：
+   - 点击反馈：所有可点击元素有150ms内的视觉反馈
+   - 手势支持：左滑弃牌、右滑出牌、上滑查看详情
+   - 防误触：重要操作（结束回合、知识爆发）需要二次确认
+   - 快捷操作：长按卡牌直接打出（无需进入题目界面）
+
+3. 视觉优化：
+   - 帧率监控：显示当前FPS，低于30时自动降级特效
+   - 电池优化：检测到低电量时关闭粒子特效
+   - 夜间模式：自动根据时间切换深色主题
+   - 色盲模式：提供图案+颜色双重标识
+
+4. 网络优化：
+   - 离线模式：检测无网络时自动切换单机模式
+   - 弱网适配：ping>500ms时简化同步频率
+   - 重连提示：断线时显示倒计时，自动尝试重连
+
+5. 学习优化：
+   - 错题即时解析：答错后立即显示详细解析，不中断游戏流程
+   - 知识点提示：答题前可花费1KP查看提示（排除1个错误选项）
+   - 战后复习：对局结束后可选择复习本场错题
+   - 学习报告：每周生成学习报告，显示薄弱知识点
+
+【给 Claude Code 的生成指令】
+
+请根据以上完整设计方案，生成一个模块化、可扩展、视觉极致的医学卡牌游戏。请确保：
+
+1. 【模块化架构】严格按照文件结构生成，每个模块独立文件，最后通过build.js合并
+2. 【题目系统】题目数据放在src/modules/question-bank/subjects/下，每个学科独立.js文件，附带README添加指南
+3. 【科目选择】精确到20个学科独立开关，支持快速选择包，单机/联机统一逻辑
+4. 【卡牌美化】实现9层全息结构、4级稀有度材质系统、学科动态符号、打出特效链
+5. 【2160题】生成完整题目数据，基础学科720题优先，其他按需加载
+6. 【P2P联机】Host-Client架构、6位房间号、增量同步、断线重连
+7. 【一键迁移】三种部署模式、配置中心、自动迁移函数
+8. 【性能优化】分片加载、LZ压缩、帧率监控、低端设备适配
+9. 【代码质量】每个模块独立注释、接口清晰、易于扩展
+10. 【使用说明】生成README，说明如何添加题目、修改配置、部署上线
+
+【重要提醒】
+
+1. 卡牌3D翻转必须使用CSS transform-style: preserve-3d + backface-visibility: hidden
+2. 联机同步采用状态同步（非帧同步），适合回合制卡牌
+3. 所有视觉效果纯CSS实现，零外部图片/音频依赖
+4. 音效使用Web Audio API生成，禁止外部音频文件
+5. 题库必须模块化，每个学科独立文件，方便修改添加
+6. 科目选择必须精确到学科级别，不是分类级别
+7. 构建脚本必须能合并所有模块为单文件HTML
+8. 一键迁移功能必须保存配置到localStorage并自动恢复
+9. 传说卡题目必须是该学科最具代表性的难点
+10. 代码必须注释详细，每个函数说明用途和参数

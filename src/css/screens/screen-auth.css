@@ -1,0 +1,341 @@
+/* ============================================================
+   MediCard Duel — Auth Screen
+   Login / Register / Profile Selection
+   ============================================================ */
+
+#screen-auth {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: var(--space-md);
+}
+
+.auth-container {
+  width: 100%;
+  max-width: 420px;
+}
+
+.auth-card {
+  background: var(--bg-secondary);
+  border: 1px solid rgba(100, 116, 139, 0.2);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.auth-logo {
+  text-align: center;
+  padding: 32px 24px 24px;
+  background: linear-gradient(180deg, rgba(6, 182, 212, 0.08) 0%, transparent 100%);
+}
+
+.auth-logo-icon {
+  font-size: 56px;
+  margin-bottom: 8px;
+  animation: floating 3s ease-in-out infinite;
+}
+
+.auth-logo h2 {
+  font-size: 28px;
+  font-weight: 900;
+  margin: 0 0 4px;
+  color: var(--text-primary);
+  letter-spacing: 2px;
+}
+
+.auth-logo p {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ── Mode tabs ── */
+.auth-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid rgba(100, 116, 139, 0.15);
+  margin-bottom: 16px;
+}
+
+.auth-tab {
+  flex: 1;
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.auth-tab:hover {
+  color: var(--text-primary);
+  background: rgba(100, 116, 139, 0.05);
+}
+
+.auth-tab.active {
+  color: var(--accent-cyan);
+  border-bottom-color: var(--accent-cyan);
+}
+
+.auth-panel {
+  animation: fadeIn 0.15s ease;
+}
+
+.auth-body {
+  padding: 16px 24px 24px;
+}
+
+.auth-section {
+  margin-bottom: 20px;
+}
+
+.auth-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin: 0 0 12px;
+  text-align: center;
+}
+
+/* ── User list ── */
+.auth-user-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.auth-user-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid rgba(100, 116, 139, 0.15);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--text-primary);
+  width: 100%;
+  text-align: left;
+}
+
+.auth-user-item:hover {
+  background: rgba(6, 182, 212, 0.08);
+  border-color: rgba(6, 182, 212, 0.3);
+}
+
+.auth-user-item.current {
+  border-color: rgba(6, 182, 212, 0.4);
+  background: rgba(6, 182, 212, 0.06);
+}
+
+.auth-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.auth-username {
+  font-weight: 600;
+  flex: 1;
+}
+
+.auth-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: rgba(6, 182, 212, 0.15);
+  color: var(--accent-cyan);
+  font-weight: 600;
+}
+
+.auth-user-date {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ── Register form ── */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.auth-input {
+  flex: 1;
+  padding: 12px 16px;
+  background: var(--bg-tertiary);
+  border: 1px solid rgba(100, 116, 139, 0.3);
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 15px;
+  outline: none;
+  transition: border-color 0.2s ease;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.auth-input:focus {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.15);
+}
+
+.auth-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+.auth-input[type="password"] {
+  letter-spacing: 2px;
+}
+
+/* Password row with toggle */
+.auth-password-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.auth-password-row .btn {
+  flex-shrink: 0;
+  min-width: 40px;
+}
+
+/* Avatar picker */
+.auth-avatar-picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+  padding: 4px 0;
+}
+
+.auth-avatar-preview {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  transition: all 0.3s ease;
+  border: 2px solid rgba(255,255,255,0.15);
+  flex-shrink: 0;
+}
+
+/* Error message */
+.auth-error {
+  padding: 8px 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 8px;
+  color: #fca5a5;
+  font-size: 13px;
+  text-align: center;
+  animation: fadeIn 0.2s ease;
+}
+
+/* Lock badge */
+.auth-lock-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  font-weight: 600;
+}
+
+.auth-user-item.locked {
+  opacity: 0.5;
+  cursor: not-allowed;
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.auth-submit-btn {
+  width: 100%;
+}
+
+/* ── Password modal ── */
+.auth-password-modal {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3000;
+}
+
+.auth-password-modal-bg {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+}
+
+.auth-password-modal-content {
+  position: relative;
+  background: var(--bg-secondary);
+  border: 1px solid rgba(100, 116, 139, 0.2);
+  border-radius: 14px;
+  padding: 24px;
+  width: 90%;
+  max-width: 360px;
+  animation: modalEnter 250ms ease-out;
+  z-index: 1;
+}
+
+.auth-password-modal-content h4 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  color: var(--text-primary);
+}
+
+/* ── Shake animation for input error ── */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+
+/* ── Mobile ── */
+@media (max-width: 480px) {
+  .auth-card {
+    border-radius: 12px;
+  }
+  .auth-logo {
+    padding: 24px 16px 16px;
+  }
+  .auth-logo-icon {
+    font-size: 44px;
+  }
+  .auth-logo h2 {
+    font-size: 22px;
+  }
+  .auth-body {
+    padding: 12px 16px 20px;
+  }
+  .auth-input {
+    padding: 10px 14px;
+    font-size: 14px;
+  }
+}
