@@ -5,3 +5,15 @@ production/session-logs/
 .DS_Store
 Thumbs.db
 *.log
+
+# Raw question bank source (already extracted to src/)
+*题库*.txt
+
+# Dev tools (only keep build.js)
+tools/generate-questions.js
+tools/parse-question-bank.js
+tools/test-*.js
+
+# Temp/test pages
+diag.html
+peerjs-test.html
