@@ -70,14 +70,60 @@
     },
 
     /**
+     * Resolve 绝杀 — target takes direct damage if no defense; otherwise defense forced + answer.
+     * Returns { type:'juesha', value: damage, message, effective, jueshaPhase: 'direct'|'defend_forced' }
+     * Called from ScreenBattle after defense card check.
+     */
+    resolveJueshaDamage: function(source, target, bonusFromSource) {
+      var weaponBonus = (source.equipment && source.equipment.weapon && source.equipment.weapon.cardSubtype === 'shouShuDao') ? 1 : 0;
+      var attackPotionBonus = (source.attackBonus || 0);
+      var identityBonus = MediCard.IdentitySkills ? MediCard.IdentitySkills.getDamageBonus(source, target) : 0;
+      var totalDmg = 1 + bonusFromSource + weaponBonus + attackPotionBonus + identityBonus;
+      var armorReduction = 0;
+      if (target.equipment && target.equipment.armor && target.equipment.armor.cardSubtype === 'baiDaGua') {
+        armorReduction = 1;
+      }
+      totalDmg = Math.max(1, totalDmg - armorReduction);
+      var dmg = MediCard.Resources.dealDamage(target, totalDmg);
+      var parts = [];
+      parts.push('绝杀基础1');
+      if (bonusFromSource > 0) parts.push('加成+' + bonusFromSource);
+      if (weaponBonus > 0) parts.push('手术刀+1');
+      if (attackPotionBonus > 0) parts.push('药效+' + attackPotionBonus);
+      if (identityBonus > 0) parts.push('身份+' + identityBonus);
+      if (armorReduction > 0) parts.push('白大褂-1');
+      return {
+        type: 'juesha', value: dmg.actual, lethal: dmg.lethal, total: totalDmg,
+        message: '绝杀命中！造成 ' + dmg.actual + ' 点伤害（' + parts.join(' → ') + ' = ' + totalDmg + '）',
+        effective: true
+      };
+    },
+
+    /**
+     * Resolve 决斗 — target answers attack questions until wrong or no hand.
+     * Returns { type:'juedou', totalDamage, totalAnswered, message }
+     */
+    resolveDuelIteration: function(defenderAnswerCorrect) {
+      return {
+        type: 'juedou_iter',
+        correct: defenderAnswerCorrect,
+        message: defenderAnswerCorrect ? '答对了！继续出杀答题' : '答错了！决斗结束，受到1点伤害'
+      };
+    },
+
+    /**
      * Resolve a tactic card effect
      * Returns { type, value, message, effective, needsTargetSelect, needsPeek }
      */
-    resolveTactic(card, source, target, answerCorrect, gs) {
+    resolveTactic(card, source, target, answerCorrect, gs, amplifyMode) {
       var result = { type: 'tactic', subType: card.cardSubtype, value: 0, message: '', effective: false };
-      if (!answerCorrect) {
+      var isAmplify = !!amplifyMode;
+      if (!answerCorrect && isAmplify) {
         result.message = '答错了，锦囊作废';
         return result;
+      }
+      if (!answerCorrect && !isAmplify) {
+        // Basic mode: no question needed, always succeeds
       }
 
       // Check if source has 防护面罩 immunity
@@ -87,11 +133,12 @@
       }
 
       switch (card.cardSubtype) {
-        case 'huiZhen': // 会诊 - draw 2 cards
-          var drawn = gs ? gs.drawCards(gs.players.indexOf(source), 2) : [];
+        case 'huiZhen': // 会诊 - basic: draw 1, amplify: draw 3
+          var hzDrawCount = isAmplify ? 3 : 1;
+          var drawn = gs ? gs.drawCards(gs.players.indexOf(source), hzDrawCount) : [];
           result.value = drawn.length;
           result.effective = drawn.length > 0;
-          result.message = '会诊成功！摸了 ' + drawn.length + ' 张牌';
+          result.message = '会诊' + (isAmplify ? '增幅' : '') + '！摸了 ' + drawn.length + ' 张牌';
           result.drawnCards = drawn;
           break;
 
@@ -113,15 +160,20 @@
           }
           break;
 
-        case 'geLi': // 隔离观察 - target skips next play phase
+        case 'geLi': // 隔离观察 - basic: no attack, amplify: no any card
           if (target && target.alive) {
             if (this._hasTacticImmunity(target)) {
               result.message = '目标有防护面罩，隔离观察无效';
               return result;
             }
-            target.skipNextPlayPhase = true;
+            if (isAmplify) {
+              target.skipNextPlayPhase = true;
+              result.message = '隔离观察增幅！' + (target.name || '对手') + '下回合无法出任何牌';
+            } else {
+              target.skipNextAttackOnly = true;
+              result.message = '隔离观察！' + (target.name || '对手') + '下回合不能出攻击牌';
+            }
             result.effective = true;
-            result.message = '隔离观察成功！' + (target.name || '对手') + '下回合无法出牌';
           }
           break;
 
@@ -157,10 +209,15 @@
           result.message = '药效增强！本回合攻击伤害+' + source.attackBonus;
           break;
 
-        case 'mianYi': // 免疫屏障 - immune next turn
-          source.immuneUntilNextTurn = true;
+        case 'mianYi': // 免疫屏障 - basic: immune next hit, amplify: immune full turn
+          if (isAmplify) {
+            source.immuneUntilNextTurn = true;
+            result.message = '免疫屏障增幅！下回合免疫所有伤害';
+          } else {
+            source.immuneNextHit = true;
+            result.message = '免疫屏障！免疫下一次伤害';
+          }
           result.effective = true;
-          result.message = '免疫屏障启动！下回合免疫所有伤害';
           break;
 
         case 'qunTi': // 群体会诊 - all teammates draw 1
@@ -334,9 +391,19 @@
       return true;
     },
 
-    getAnswerTimeLimit(rarity) {
-      var limits = { common: 15, rare: 20, epic: 25, legendary: 30 };
-      return limits[rarity] || 15;
+    getAnswerTimeLimit(card) {
+      if (!card) return 20;
+      // Delegate to dynamic timer calculator if available
+      if (MediCard.TimerCalculator) {
+        var aiDiff = MediCard.Storage ? MediCard.Storage.get('difficulty', 'normal') : 'normal';
+        var mode = MediCard.GameState ? MediCard.GameState.mode : 'single';
+        var extBonus = MediCard.TimerCalculator.VoteExtender
+          ? MediCard.TimerCalculator.VoteExtender.getBonus(card.id) : 0;
+        return MediCard.TimerCalculator.calculateTime(card, aiDiff, mode, extBonus);
+      }
+      // Fallback (pre-dynamic-timer)
+      var limits = { common: 30, rare: 35, epic: 40, legendary: 45 };
+      return limits[card.rarity] || 15;
     },
 
     getAnswerer(card) {

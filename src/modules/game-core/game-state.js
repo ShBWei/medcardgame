@@ -31,7 +31,7 @@
     },
 
     goToScreen(screen) {
-      const validScreens = ['title', 'lobby', 'subject', 'playing', 'result'];
+      const validScreens = ['auth', 'title', 'lobby', 'subject', 'playing', 'result'];
       if (!validScreens.includes(screen)) return;
       this.screen = screen;
       if (MediCard.UI && MediCard.UI.showScreen) {
@@ -60,7 +60,9 @@
         // Status effects
         attackBonus: 0,
         immuneUntilNextTurn: false,
+        immuneNextHit: false,
         skipNextPlayPhase: false,
+        skipNextAttackOnly: false,
         skipNextTurn: false,
         vaccineTurns: 0
       };
@@ -86,8 +88,6 @@
     drawCard(playerIndex) {
       const player = this.players[playerIndex];
       if (!player || !player.alive) return null;
-      const handLimit = MediCard.Resources ? MediCard.Resources.getHandLimit(player) : 4;
-      if (player.hand.length >= handLimit) return 'hand_full';
       if (this.deck.length === 0) this._reshuffleDiscard();
       if (this.deck.length === 0) return null;
       const card = this.deck.pop();
@@ -99,7 +99,6 @@
       const drawn = [];
       for (let i = 0; i < count; i++) {
         const card = this.drawCard(playerIndex);
-        if (card === 'hand_full') break;
         if (card) drawn.push(card);
         else break;
       }
@@ -137,16 +136,8 @@
 
     _reshuffleDiscard() {
       if (this.discardPile.length === 0) return;
-      this.deck = this._shuffle([...this.discardPile]);
+      this.deck = MediCard.CardData ? MediCard.CardData.shuffle([...this.discardPile]) : this.discardPile.slice();
       this.discardPile = [];
-    },
-
-    _shuffle(arr) {
-      for (let i = arr.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [arr[i], arr[j]] = [arr[j], arr[i]];
-      }
-      return arr;
     },
 
     getAlivePlayers() { return this.players.filter(p => p.alive); },

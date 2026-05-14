@@ -279,7 +279,27 @@
       }
 
       if (!user) {
-        _showError('auth-login-error', '账号不存在，请先注册');
+        // Local lookup failed — try server-side recovery
+        var self = this;
+        MediCard.Storage.lookupAccountOnServer(username, function(found, serverAcct) {
+          if (found && serverAcct) {
+            // Account exists on server — restore it locally then verify password
+            MediCard.Storage.restoreAccountFromServer(serverAcct.userId, function(restored, restoredUser) {
+              if (restored && restoredUser) {
+                // Now try login with restored user
+                if (!restoredUser.passwordHash) {
+                  self._doSetFirstPassword(restoredUser, password, usernameEl);
+                } else {
+                  self._doLogin(restoredUser, password, usernameEl);
+                }
+              } else {
+                _showError('auth-login-error', '从服务器恢复账号失败，请检查网络');
+              }
+            });
+          } else {
+            _showError('auth-login-error', '账号不存在，请先注册');
+          }
+        });
         return;
       }
 
@@ -369,6 +389,8 @@
           return;
         }
         MediCard.Storage.setCurrentUser(newUser.id);
+        // Sync account to server for backup
+        setTimeout(function() { MediCard.Storage.syncAccountToServer(); }, 500);
         try { MediCard.Audio.playButtonClick(); } catch(e) {}
         MediCard.GameState.goToScreen('title');
       });
@@ -381,6 +403,8 @@
         if (match) {
           _clearFailedAttempts(user.id);
           MediCard.Storage.setCurrentUser(user.id);
+          // Sync account to server for backup
+          setTimeout(function() { MediCard.Storage.syncAccountToServer(); }, 500);
           try { MediCard.Audio.playButtonClick(); } catch(e) {}
           MediCard.GameState.goToScreen('title');
         } else {
@@ -407,6 +431,7 @@
         user.passwordHash = hash;
         MediCard.Storage.saveUser(user);
         MediCard.Storage.setCurrentUser(user.id);
+        setTimeout(function() { MediCard.Storage.syncAccountToServer(); }, 500);
         try { MediCard.Audio.playButtonClick(); } catch(e) {}
         MediCard.GameState.goToScreen('title');
       });
@@ -476,6 +501,7 @@
           user.passwordHash = hash;
           MediCard.Storage.saveUser(user);
           MediCard.Storage.setCurrentUser(userId);
+          setTimeout(function() { MediCard.Storage.syncAccountToServer(); }, 500);
           try { MediCard.Audio.playButtonClick(); } catch(e) {}
           self2._hidePasswordModal();
           MediCard.GameState.goToScreen('title');
@@ -493,6 +519,7 @@
         if (match) {
           _clearFailedAttempts(userId);
           MediCard.Storage.setCurrentUser(userId);
+          setTimeout(function() { MediCard.Storage.syncAccountToServer(); }, 500);
           try { MediCard.Audio.playButtonClick(); } catch(e) {}
           self._hidePasswordModal();
           MediCard.GameState.goToScreen('title');

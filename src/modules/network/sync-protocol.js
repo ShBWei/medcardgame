@@ -23,7 +23,9 @@
       PLAYER_DISCONNECT: 'player_dc',
       DEFEND_QUESTION: 'defend_q',
       DEFEND_ANSWER: 'defend_a',
-      SURRENDER: 'surrender'
+      SURRENDER: 'surrender',
+      TIME_EXTEND_VOTE: 'time_ext_vote',
+      TIME_EXTEND_GRANTED: 'time_ext_granted'
     },
 
     pack(type, data) {

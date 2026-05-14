@@ -160,6 +160,81 @@
     getWrongQuestions() {
       var key = this._userPrefix() + 'wrong_questions';
       return this.get(key, []);
+    },
+
+    // ── Server-side account backup/restore ──
+
+    /** Push current account + stats to server for backup */
+    syncAccountToServer: function() {
+      var self = this;
+      var user = this.getCurrentUser();
+      if (!user) return;
+      var data = {
+        userId: user.id,
+        username: user.username,
+        passwordHash: user.passwordHash || '',
+        avatarColor: user.avatarColor || '',
+        avatarIcon: user.avatarIcon || '',
+        createdAt: user.createdAt || '',
+        gameStats: this.getGameStats(),
+        wrongQuestions: this.getWrongQuestions()
+      };
+      fetch('/api/accounts/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      }).catch(function() { /* server unavailable, skip */ });
+    },
+
+    /** Restore account data from server */
+    restoreAccountFromServer: function(userId, callback) {
+      fetch('/api/accounts/backup?userId=' + encodeURIComponent(userId))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.ok && data.account) {
+            var acct = data.account;
+            // Restore user account
+            var user = {
+              id: acct.userId,
+              username: acct.username,
+              passwordHash: acct.passwordHash || '',
+              avatarColor: acct.avatarColor || '#06b6d4',
+              avatarIcon: acct.avatarIcon || '👨‍⚕️',
+              createdAt: acct.createdAt || new Date().toISOString()
+            };
+            MediCard.Storage.saveUser(user);
+            // Restore game stats
+            if (acct.gameStats && acct.gameStats.length > 0) {
+              MediCard.Storage.set('u_' + acct.userId + '_game_stats', acct.gameStats);
+            }
+            // Restore wrong questions
+            if (acct.wrongQuestions && acct.wrongQuestions.length > 0) {
+              MediCard.Storage.set('u_' + acct.userId + '_wrong_questions', acct.wrongQuestions);
+            }
+            if (callback) callback(true, user);
+          } else {
+            if (callback) callback(false, null);
+          }
+        })
+        .catch(function() {
+          if (callback) callback(false, null);
+        });
+    },
+
+    /** Look up account by username on server */
+    lookupAccountOnServer: function(username, callback) {
+      fetch('/api/accounts/lookup?username=' + encodeURIComponent(username))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.ok && data.account) {
+            if (callback) callback(true, data.account);
+          } else {
+            if (callback) callback(false, null);
+          }
+        })
+        .catch(function() {
+          if (callback) callback(false, null);
+        });
     }
   };
 

@@ -93,7 +93,7 @@
 }
 
 .hand-cards .card:hover {
-  transform: rotate(var(--fan-angle, 0deg)) translateY(calc(var(--fan-lift, 0px) - 25px)) scale(1.08);
+  transform: rotate(var(--fan-angle, 0deg)) translateY(calc(var(--fan-lift, 0px) - 12px)) scale(1.05);
   z-index: 50;
   box-shadow: 0 0 18px rgba(6,182,212,0.5);
 }
@@ -111,7 +111,7 @@
     margin-left: -35px;
   }
   .hand-cards .card:hover {
-    transform: rotate(var(--fan-angle, 0deg)) translateY(calc(var(--fan-lift, 0px) - 20px)) scale(1.08);
+    transform: rotate(var(--fan-angle, 0deg)) translateY(calc(var(--fan-lift, 0px) - 10px)) scale(1.05);
   }
 }
 
@@ -125,7 +125,7 @@
   }
   /* Reduce hover lift on mobile — touch doesn't hover */
   .hand-cards .card:active {
-    transform: rotate(var(--fan-angle, 0deg)) translateY(calc(var(--fan-lift, 0px) - 15px)) scale(1.05);
+    transform: rotate(var(--fan-angle, 0deg)) translateY(calc(var(--fan-lift, 0px) - 8px)) scale(1.03);
     z-index: 50;
   }
 }

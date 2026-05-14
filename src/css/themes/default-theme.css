@@ -90,13 +90,6 @@ html, body {
   overflow: hidden;
 }
 
-#app {
-  width: 100%;
-  height: 100%;
-  position: relative;
-  overflow: hidden;
-}
-
 /* Background pattern */
 #app::before {
   content: '';
@@ -188,3 +181,12 @@ html, body {
 .hp-low { background: var(--accent-red); }
 .mp-bar { background: var(--accent-blue); }
 .kp-bar { background: var(--accent-purple); }
+
+/* Accessibility: disable non-essential animations for users with motion sensitivity */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

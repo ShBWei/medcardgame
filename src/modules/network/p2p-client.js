@@ -3,6 +3,7 @@
  * Client connection for multiplayer games via PeerJS
  * Receives game state, sends player actions
  */
+/* global Peer */
 (function() {
   var MediCard = window.MediCard || {};
 
@@ -28,7 +29,7 @@
 
       try {
         this._peer = new Peer(clientId, {
-          host: cfg.host, port: cfg.port, path: cfg.path, secure: cfg.secure, debug: cfg.debug
+          host: cfg.host, port: cfg.port, path: cfg.path, key: cfg.key, secure: cfg.secure, debug: cfg.debug
         });
 
         this._peer.on('open', function() {

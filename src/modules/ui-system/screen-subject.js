@@ -35,6 +35,7 @@
       var html = '' +
         '<div class="subject-header">' +
           '<h2>📚 科目选择</h2>' +
+          (self._forMultiplayer ? '<p style="font-size:12px;color:#fbbf24;margin-bottom:4px;">🌐 联机模式：房主的科目选择将作为本局最终科目</p>' : '') +
           '<p class="selected-count">已选 <strong>' + this._selected.size + '/' + allSubjects.length + '</strong> 科 · 共计 <strong>' + stats.total + '</strong> 题</p>' +
         '</div>';
 
@@ -57,13 +58,13 @@
 
       cat.subjects.forEach(function(subId) {
         var m = meta[subId] || {};
-        var questions = MediCard.QuestionLoader.getSubject(subId);
+        var count = MediCard.QuestionLoader.getSubjectCount(subId);
         var isSelected = self._selected.has(subId);
-        html += '<div class="subject-item' + (isSelected ? ' selected' : '') + '" data-subject="' + subId + '">' +
+        html += '<div class="subject-item' + (isSelected ? ' selected' : '') + '" data-subject="' + subId + '" role="checkbox" aria-checked="' + (isSelected ? 'true' : 'false') + '" tabindex="0">' +
           '<span class="subject-item-icon">' + (m.icon || '📚') + '</span>' +
           '<div class="subject-item-info">' +
             '<div class="subject-item-name">' + (m.name || subId) + '</div>' +
-            '<div class="subject-item-count">' + questions.length + '题</div>' +
+            '<div class="subject-item-count">' + count + '题</div>' +
           '</div>' +
           '<div class="subject-item-check">✓</div>' +
         '</div>';
@@ -73,10 +74,10 @@
 
       // Statistics
       html += '<div class="selection-stats">' +
-        '<div class="selection-stat-item"><span class="selection-stat-value" style="color:#64748b">' + stats.common + '</span><span class="selection-stat-label">普通</span></div>' +
-        '<div class="selection-stat-item"><span class="selection-stat-value" style="color:#06b6d4">' + stats.rare + '</span><span class="selection-stat-label">稀有</span></div>' +
-        '<div class="selection-stat-item"><span class="selection-stat-value" style="color:#a855f7">' + stats.epic + '</span><span class="selection-stat-label">史诗</span></div>' +
-        '<div class="selection-stat-item"><span class="selection-stat-value" style="color:#fbbf24">' + stats.legendary + '</span><span class="selection-stat-label">传说</span></div>' +
+        '<div class="selection-stat-item"><span class="selection-stat-value" style="color:#64748b">' + stats.byDifficulty.common + '</span><span class="selection-stat-label">普通</span></div>' +
+        '<div class="selection-stat-item"><span class="selection-stat-value" style="color:#06b6d4">' + stats.byDifficulty.rare + '</span><span class="selection-stat-label">稀有</span></div>' +
+        '<div class="selection-stat-item"><span class="selection-stat-value" style="color:#a855f7">' + stats.byDifficulty.epic + '</span><span class="selection-stat-label">史诗</span></div>' +
+        '<div class="selection-stat-item"><span class="selection-stat-value" style="color:#fbbf24">' + stats.byDifficulty.legendary + '</span><span class="selection-stat-label">传说</span></div>' +
       '</div>' +
       '<div class="selection-stats">' +
         '<span style="font-size:12px;color:var(--text-muted);">预计游戏时长：约' + Math.floor(stats.total / 60) + '-' + Math.floor(stats.total / 40) + '分钟</span>' +
@@ -84,7 +85,7 @@
 
       // Action buttons
       html += '<div class="subject-actions">' +
-        '<button class="btn btn-primary btn-lg" id="btn-confirm-subjects">⚔️ 确认开始</button>' +
+        '<button class="btn btn-primary btn-lg" id="btn-confirm-subjects">' + (self._forMultiplayer ? '🌐 确认并进入房间' : '⚔️ 确认开始') + '</button>' +
         '<button class="btn btn-ghost" id="btn-back-subjects">← 返回</button>' +
       '</div>';
 
@@ -110,6 +111,12 @@
           MediCard.Storage.saveSelectedSubjects([...self._selected]);
           // Refresh stats and UI
           self._renderContent(screen);
+        });
+        item.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            this.click();
+          }
         });
       });
 
@@ -160,16 +167,15 @@
     },
 
     _getStats() {
+      // Trigger background preload of selected subjects for accurate stats
       var self = this;
-      var stats = { total: 0, common: 0, rare: 0, epic: 0, legendary: 0 };
-      self._selected.forEach(function(subId) {
-        var questions = MediCard.QuestionLoader.getSubject(subId);
-        stats.total += questions.length;
-        questions.forEach(function(q) {
-          stats[q.difficulty] = (stats[q.difficulty] || 0) + 1;
-        });
+      var selectedArr = Array.from(self._selected);
+      // Use pre-existing load method without blocking
+      selectedArr.forEach(function(subId) {
+        MediCard.QuestionLoader.getSubject(subId);
       });
-      return stats;
+      // Return stats — may use metadata for count if data not yet loaded
+      return MediCard.QuestionLoader.getSelectionStats();
     }
   };
 

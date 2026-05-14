@@ -38,7 +38,7 @@
 
     getHandLimit(player) {
       if (!player || !player.resources || !player.resources.hp) return 4;
-      return Math.max(1, player.resources.hp.current);
+      return Math.max(3, player.resources.hp.current);
     },
 
     canDrawCard(player) {

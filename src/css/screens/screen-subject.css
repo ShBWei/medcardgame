@@ -10,6 +10,21 @@
   gap: var(--space-md);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  /* Fill parent and allow scrolling — min-height so content can grow */
+  flex: 1;
+  min-height: 0;
+  /* Extra bottom padding so action buttons clear mobile browser chrome */
+  padding-bottom: calc(48px + env(safe-area-inset-bottom, 0px));
+}
+
+/* Prevent flex children from collapsing instead of scrolling */
+#screen-subject > * {
+  flex-shrink: 0;
+}
+
+/* Override parent screen overflow so subject screen handles scroll internally */
+.screen.active#screen-subject {
+  overflow-y: auto;
 }
 
 .subject-header {
@@ -99,6 +114,10 @@
 .subject-item:hover {
   background: rgba(15, 23, 42, 0.6);
   border-color: rgba(100, 116, 139, 0.3);
+}
+.subject-item:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
 }
 .subject-item.selected {
   border-color: var(--accent-cyan);

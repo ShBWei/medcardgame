@@ -57,8 +57,13 @@
     applyTurnStartEffects(player) {
       var skill = this.getSkill(player.identity);
       if (skill && skill.passive && skill.onTurnStart) {
+        var hpBefore = player.resources ? player.resources.hp.current : 0;
         skill.onTurnStart(player);
+        var hpAfter = player.resources ? player.resources.hp.current : 0;
+        var healed = hpAfter - hpBefore;
+        return { healed: healed, skillName: skill.name };
       }
+      return { healed: 0 };
     },
 
     getExtraDraw(player) {

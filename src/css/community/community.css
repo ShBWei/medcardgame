@@ -14,7 +14,7 @@
 
 .mkc-modal {
   background: linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.97));
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  border: 1px solid rgba(6, 182, 212, 0.2);
   border-radius: 16px;
   padding: 20px;
   color: var(--text-primary, #e2e8f0);
@@ -29,7 +29,7 @@
   justify-content: space-between;
   margin-bottom: 16px;
   padding-bottom: 12px;
-  border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+  border-bottom: 1px solid rgba(6, 182, 212, 0.15);
 }
 
 .mkc-lb-header h3 {
@@ -72,12 +72,12 @@
 
 .mkc-tab:hover {
   color: var(--text-primary, #e2e8f0);
-  background: rgba(99, 102, 241, 0.08);
+  background: rgba(6, 182, 212, 0.08);
 }
 
 .mkc-tab.active {
-  background: rgba(99, 102, 241, 0.2);
-  color: #a5b4fc;
+  background: rgba(6, 182, 212, 0.2);
+  color: #67e8f9;
   font-weight: 600;
 }
 
@@ -92,7 +92,7 @@
   flex: 1;
   padding: 6px 12px;
   background: rgba(0, 0, 0, 0.15);
-  border: 1px solid rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(6, 182, 212, 0.1);
   border-radius: 6px;
   color: var(--text-muted, #94a3b8);
   font-size: 12px;
@@ -100,9 +100,9 @@
 }
 
 .mkc-period-btn.active {
-  background: rgba(99, 102, 241, 0.15);
-  border-color: rgba(99, 102, 241, 0.3);
-  color: #a5b4fc;
+  background: rgba(6, 182, 212, 0.15);
+  border-color: rgba(6, 182, 212, 0.3);
+  color: #67e8f9;
   font-weight: 600;
 }
 
@@ -124,7 +124,7 @@
 }
 
 .mkc-rank-item:hover {
-  background: rgba(99, 102, 241, 0.06);
+  background: rgba(6, 182, 212, 0.06);
 }
 
 .mkc-is-me {
@@ -185,7 +185,7 @@
 
 .mkc-rank-score b {
   font-size: 18px;
-  color: #a5b4fc;
+  color: #67e8f9;
 }
 
 .mkc-rank-score small {
@@ -198,7 +198,7 @@
   font-size: 11px;
   color: var(--text-muted, #64748b);
   padding: 8px 0;
-  border-top: 1px dashed rgba(99, 102, 241, 0.15);
+  border-top: 1px dashed rgba(6, 182, 212, 0.15);
   margin-top: 8px;
 }
 
@@ -222,26 +222,6 @@
   color: var(--text-muted, #64748b);
 }
 
-/* ============ Challenge Modal ============ */
-.mkc-ch-opt {
-  border: 1px solid rgba(99, 102, 241, 0.15);
-  background: rgba(0, 0, 0, 0.2);
-  color: var(--text-primary, #e2e8f0);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.mkc-ch-opt:hover:not(:disabled) {
-  background: rgba(99, 102, 241, 0.15);
-  border-color: rgba(99, 102, 241, 0.3);
-}
-
-.mkc-ch-opt:disabled {
-  cursor: not-allowed;
-  opacity: 0.8;
-}
-
 /* ============ Forms ============ */
 .mkc-form-section {
   padding: 4px 0;
@@ -257,7 +237,7 @@
 }
 
 .mkc-daily-info b {
-  color: #a5b4fc;
+  color: #67e8f9;
 }
 
 .mkc-field {
@@ -278,7 +258,7 @@
   width: 100%;
   padding: 8px 12px;
   background: rgba(0, 0, 0, 0.25);
-  border: 1px solid rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(6, 182, 212, 0.15);
   border-radius: 8px;
   color: var(--text-primary, #e2e8f0);
   font-size: 13px;
@@ -287,11 +267,18 @@
   transition: border-color 0.2s;
 }
 
+.mkc-select:focus-visible,
+.mkc-textarea:focus-visible,
+.mkc-opt-input:focus-visible {
+  outline: 2px solid var(--accent-cyan, #06b6d4);
+  outline-offset: 1px;
+}
+
 .mkc-select:focus,
 .mkc-textarea:focus,
 .mkc-opt-input:focus {
   outline: none;
-  border-color: rgba(99, 102, 241, 0.4);
+  border-color: rgba(6, 182, 212, 0.4);
 }
 
 .mkc-select {
@@ -318,11 +305,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(99, 102, 241, 0.15);
+  background: rgba(6, 182, 212, 0.15);
   border-radius: 6px;
   font-size: 12px;
   font-weight: 700;
-  color: #a5b4fc;
+  color: #67e8f9;
   flex-shrink: 0;
 }
 
@@ -344,7 +331,7 @@
 /* ============ Review Cards ============ */
 .mkc-review-card {
   background: rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(6, 182, 212, 0.1);
   border-radius: 10px;
   padding: 14px;
   margin-bottom: 12px;
@@ -467,6 +454,6 @@
 
 .mkc-rankings::-webkit-scrollbar-thumb,
 .mkc-modal::-webkit-scrollbar-thumb {
-  background: rgba(99, 102, 241, 0.2);
+  background: rgba(6, 182, 212, 0.2);
   border-radius: 2px;
 }

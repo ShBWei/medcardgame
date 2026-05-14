@@ -21,7 +21,6 @@
           btn.textContent = '📝 题库共建';
           btn.addEventListener('click', function() { self.show(); });
           menu.appendChild(btn);
-          clearInterval(_checkInterval);
         }
       }, 500);
     },
@@ -234,9 +233,36 @@
 
       var html = '<div class="mkc-daily-info">纠错提案 · 7天有效期 · 通过需多数支持</div>';
 
-      if (active.length === 0) {
-        html += '<div class="mkc-empty">暂无活跃的纠错提案<br><small>在"我的题目"中对有问题的题目发起纠错吧！</small></div>';
+      // Also show flagged game questions (from battles) that meet threshold
+      var flags = MC.getFlags();
+      var flaggedQIds = [];
+      for (var fid in flags) {
+        if (flags[fid].weightedScore >= 3) {
+          // Check if there's already an active proposal for this question
+          var hasActiveProp = active.some(function(p) { return p.questionId === fid; });
+          if (!hasActiveProp) flaggedQIds.push({ id: fid, entry: flags[fid] });
+        }
+      }
+
+      if (active.length === 0 && flaggedQIds.length === 0) {
+        html += '<div class="mkc-empty">暂无活跃的纠错提案<br><small>在战斗中点击"质疑此题"标记有问题的题目，或去"我的题目"发起纠错吧！</small></div>';
         return html;
+      }
+
+      // Flagged game questions section (not yet escalated)
+      if (flaggedQIds.length > 0) {
+        html += '<div style="font-size:12px;color:#f97316;margin-bottom:8px;padding:8px;background:rgba(249,115,22,0.08);border-radius:8px;">' +
+          '⚠️ <b>' + flaggedQIds.length + '</b> 道游戏题目被多名玩家质疑，等待处理</div>';
+        flaggedQIds.forEach(function(fq) {
+          var fentry = fq.entry;
+          var reasons = (fentry.reasons || []).map(function(r) { return r.reason; }).join('、') || '答案可能有误';
+          html += '<div class="mkc-proposal-card" style="border-left:3px solid #f97316;">' +
+            '<div style="font-size:11px;color:var(--text-muted);">题目ID: ' + _esc(fq.id) + '</div>' +
+            '<div style="font-size:11px;color:#f97316;margin-top:2px;">质疑: ' + _esc(reasons) + '</div>' +
+            '<div style="font-size:11px;color:var(--text-muted);">异议权重: ' + (fentry.weightedScore || 0).toFixed(1) + '</div>' +
+            '<button class="btn btn-sm btn-primary mkc-flag-escalate" data-qid="' + fq.id + '" style="margin-top:6px;">📢 发起纠错提案</button>' +
+          '</div>';
+        });
       }
 
       active.forEach(function(p) {
@@ -247,7 +273,7 @@
         }
 
         var q = MC.getQuestionById(p.questionId);
-        var qText = q ? q.question : '(题目已删除)';
+        var qText = p.questionText || (q ? q.question : '') || '(题目信息已删除)';
 
         html += '<div class="mkc-proposal-card">' +
           '<div style="font-size:11px;color:var(--text-muted);">原题: ' + _esc(qText) + '</div>' +
@@ -311,6 +337,19 @@
       });
       content.querySelectorAll('.mkc-prop-oppose').forEach(function(btn) {
         btn.addEventListener('click', function() { self._handleProposalVote(this.getAttribute('data-propid'), 'oppose', content); });
+      });
+
+      // Escalate flagged game question to proposal
+      content.querySelectorAll('.mkc-flag-escalate').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var qid = this.getAttribute('data-qid');
+          var flags = MC.getFlags();
+          var entry = flags[qid];
+          var reasons = entry && entry.reasons ? entry.reasons.map(function(r){return r.reason;}).join('、') : '答案可能有误';
+          MC.autoEscalateFlaggedQuestion(qid, '', '', '玩家质疑: ' + reasons);
+          _showToast('📢 已发起纠错', '该题目已进入提案投票流程', 2000);
+          self._refresh(content);
+        });
       });
     },
 

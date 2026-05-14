@@ -20,15 +20,13 @@
       review_200: { title: '审核专家', desc: '累计审核200道题目', icon: '⚖️' },
       senior_tier: { title: '资深贡献者', desc: '信誉等级达到资深', icon: '💜' },
       expert_tier: { title: '题库专家', desc: '信誉等级达到专家', icon: '👑' },
-      perfect_streak: { title: '连续通过', desc: '连续5次审核通过', icon: '🔥' },
-      challenge_50: { title: '挑战达人', desc: '完成50次随机挑战', icon: '🎲' }
+      perfect_streak: { title: '连续通过', desc: '连续5次审核通过', icon: '🔥' }
     },
 
     /** Track state for streak detection */
     _state: {
       lastApprovedCount: 0,
       lastReviewCount: 0,
-      lastChallengeCount: 0,
       lastRepScore: 0,
       lastTier: 'newcomer',
       approveStreak: 0,
@@ -87,11 +85,6 @@
       }
       if (!achs.expert_tier && rep.tier === 'expert') {
         if (MC.unlockAchievement('expert_tier')) newAchs.push(this.ACHIEVEMENTS.expert_tier);
-      }
-
-      // Challenge milestones
-      if (!achs.challenge_50 && limits.challenges >= 50) {
-        if (MC.unlockAchievement('challenge_50')) newAchs.push(this.ACHIEVEMENTS.challenge_50);
       }
 
       // Show new achievement notifications
@@ -176,7 +169,7 @@
     /** Show daily limits summary toast */
     showLimitsSummary: function() {
       var limits = MC.getDailyLimits();
-      var msg = '提交 ' + limits.submits + '/5 · 审核 ' + limits.reviews + '/20 · 挑战 ' + limits.challenges + '/10';
+      var msg = '提交 ' + limits.submits + '/5 · 审核 ' + limits.reviews + '/20';
       this._showSmallToast('📊 今日进度', msg, 2500);
     },
 
@@ -219,13 +212,6 @@
   var _originalRecordReview = MC.recordReview;
   MC.recordReview = function() {
     _originalRecordReview.call(MC);
-    setTimeout(function() { MC.Feedback.checkAchievements(); }, 100);
-  };
-
-  // Wrap MC.recordChallenge to trigger achievements
-  var _originalRecordChallenge = MC.recordChallenge;
-  MC.recordChallenge = function() {
-    _originalRecordChallenge.call(MC);
     setTimeout(function() { MC.Feedback.checkAchievements(); }, 100);
   };
 

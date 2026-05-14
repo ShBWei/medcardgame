@@ -25,8 +25,8 @@
         '<div class="screen" id="screen-lobby"></div>' +
         '<div class="screen" id="screen-subject"></div>' +
         '<div class="screen" id="screen-battle"></div>' +
-        '<div class="screen" id="screen-deck"></div>' +
         '<div class="screen" id="screen-result"></div>' +
+        '<div class="screen" id="screen-notebook"></div>' +
         // Particle container for effects
         '<div class="particle-container" id="particles"></div>';
 
@@ -76,10 +76,11 @@
             break;
           case 'playing':
             MediCard.ScreenBattle.init();
-            MediCard.ScreenBattle.render();
             break;
-          case 'deck':
-            MediCard.ScreenDeck.render();
+          case 'notebook':
+            if (MediCard.ScreenNotebook && MediCard.ScreenNotebook.show) {
+              MediCard.ScreenNotebook.show();
+            }
             break;
           case 'result':
             MediCard.ScreenResult.render();
@@ -169,11 +170,9 @@
     try {
       _sanitizeUrlParams();
       _validateStoredData();
-      // One-time: clear all old accounts for fresh secure start
-      if (!MediCard.Storage.get('_v2_migrated', false)) {
-        MediCard.Storage.clear();
-        MediCard.Storage.set('_v2_migrated', true);
-      }
+      // Migration: removed destructive clear() that wiped all user accounts.
+      // Data validation is handled by individual getter methods (getUsers, getGameStats, etc.)
+      MediCard.Storage.set('_v2_migrated', true);
       MediCard.UI.init();
     } catch (e) {
       _showError();

@@ -6,6 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f172a">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self';">
 <title>MediCard 医杀 (Dev)</title>
 <!-- CSS (dev: individual files) -->
 <link rel="stylesheet" href="src/css/themes/default-theme.css">
@@ -23,6 +24,7 @@
 <link rel="stylesheet" href="src/css/screens/screen-lobby.css">
 <link rel="stylesheet" href="src/css/screens/screen-subject.css">
 <link rel="stylesheet" href="src/css/screens/screen-battle.css">
+<link rel="stylesheet" href="src/css/screens/screen-notebook.css">
 <link rel="stylesheet" href="src/css/animations/keyframes.css">
 <link rel="stylesheet" href="src/css/animations/transitions.css">
 <link rel="stylesheet" href="src/css/animations/particle-effects.css">
@@ -31,57 +33,47 @@
 <body>
 <div id="app"></div>
 <!-- External libs -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js"></script>
-<script src="src/lib/peerjs.min.js"></script>
+<script defer src="src/lib/lz-string.min.js"></script>
+<script defer src="src/lib/peerjs.min.js"></script>
 <!-- JS modules (dev: individual files in dependency order) -->
-<script src="src/modules/config/deploy-config.js"></script>
-<script src="src/modules/security/crypto-utils.js"></script>
-<script src="src/modules/storage/local-storage.js"></script>
-<script src="src/modules/storage/data-compressor.js"></script>
-<!-- Subject files — 8 subjects -->
-<script src="src/modules/question-bank/subjects/cell-biology.js"></script>
-<script src="src/modules/question-bank/subjects/biochemistry.js"></script>
-<script src="src/modules/question-bank/subjects/physiology.js"></script>
-<script src="src/modules/question-bank/subjects/pathology.js"></script>
-<script src="src/modules/question-bank/subjects/histology-embryology.js"></script>
-<script src="src/modules/question-bank/subjects/systematic-anatomy.js"></script>
-<script src="src/modules/question-bank/subjects/immunology.js"></script>
-<script src="src/modules/question-bank/subjects/microbiology.js"></script>
-<script src="src/modules/question-bank/question-validator.js"></script>
-<script src="src/modules/question-bank/question-loader.js"></script>
-<script src="src/modules/game-core/resource-system.js"></script>
-<script src="src/modules/game-core/victory-condition.js"></script>
-<script src="src/modules/game-core/turn-system.js"></script>
-<script src="src/modules/game-core/game-state.js"></script>
-<script src="src/modules/card-system/card-data.js"></script>
-<script src="src/modules/card-system/card-effects.js"></script>
-<script src="src/modules/card-system/card-visuals.js"></script>
-<script src="src/modules/card-system/card-animations.js"></script>
-<script src="src/modules/identity-system/identity-data.js"></script>
-<script src="src/modules/identity-system/identity-skills.js"></script>
-<script src="src/modules/identity-system/identity-ui.js"></script>
-<script src="src/modules/ui-system/components/card-component.js"></script>
-<script src="src/modules/ui-system/components/timer-component.js"></script>
-<script src="src/modules/ui-system/components/player-panel.js"></script>
-<script src="src/modules/ui-system/components/question-popup.js"></script>
-<script src="src/modules/ui-system/screen-auth.js"></script>
-<script src="src/modules/ui-system/screen-title.js"></script>
-<script src="src/modules/ui-system/screen-lobby.js"></script>
-<script src="src/modules/ui-system/screen-subject.js"></script>
-<script src="src/modules/ui-system/screen-battle.js"></script>
-<script src="src/modules/ui-system/screen-deck.js"></script>
-<script src="src/modules/ui-system/screen-result.js"></script>
-<script src="src/modules/audio-system/audio-generator.js"></script>
-<script src="src/modules/network/sync-protocol.js"></script>
-<script src="src/modules/network/room-manager.js"></script>
-<script src="src/modules/network/p2p-host.js"></script>
-<script src="src/modules/network/p2p-client.js"></script>
+<script defer src="src/modules/config/deploy-config.js"></script>
+<script defer src="src/modules/security/crypto-utils.js"></script>
+<script defer src="src/modules/security/frontend-security.js"></script>
+<script defer src="src/modules/storage/local-storage.js"></script>
+<script defer src="src/modules/question-bank/question-loader.js"></script>
+<script defer src="src/modules/question-bank/wrong-question-book.js"></script>
+<script defer src="src/modules/ui-system/screen-notebook.js"></script>
+<script defer src="src/modules/game-core/resource-system.js"></script>
+<script defer src="src/modules/game-core/victory-condition.js"></script>
+<script defer src="src/modules/game-core/turn-system.js"></script>
+<script defer src="src/modules/game-core/game-state.js"></script>
+<script defer src="src/modules/timer/timer-calculator.js"></script>
+<script defer src="src/modules/debug/battle-logger.js"></script>
+<script defer src="src/modules/card-system/card-data.js"></script>
+<script defer src="src/modules/card-system/card-effects.js"></script>
+<script defer src="src/modules/card-system/card-visuals.js"></script>
+<script defer src="src/modules/identity-system/identity-data.js"></script>
+<script defer src="src/modules/identity-system/identity-skills.js"></script>
+<script defer src="src/modules/ui-system/components/timer-component.js"></script>
+<script defer src="src/modules/ui-system/components/player-panel.js"></script>
+<script defer src="src/modules/ui-system/components/question-popup.js"></script>
+<script defer src="src/modules/ui-system/screen-auth.js"></script>
+<script defer src="src/modules/ui-system/screen-title.js"></script>
+<script defer src="src/modules/ui-system/screen-lobby.js"></script>
+<script defer src="src/modules/ui-system/screen-subject.js"></script>
+<script defer src="src/modules/ui-system/screen-battle.js"></script>
+<script defer src="src/modules/ui-system/screen-result.js"></script>
+<script defer src="src/modules/audio-system/audio-generator.js"></script>
+<script defer src="src/modules/network/sync-protocol.js"></script>
+<script defer src="src/modules/network/room-manager.js"></script>
+<script defer src="src/modules/network/p2p-host.js"></script>
+<script defer src="src/modules/network/p2p-client.js"></script>
+<script defer src="src/modules/network/multiplayer-adapter.js"></script>
 <!-- Community modules -->
-<script src="src/modules/community/community-core.js"></script>
-<script src="src/modules/community/community-leaderboard.js"></script>
-<script src="src/modules/community/community-challenge.js"></script>
-<script src="src/modules/community/community-questions.js"></script>
-<script src="src/modules/community/community-feedback.js"></script>
-<script src="src/modules/main.js"></script>
+<script defer src="src/modules/community/community-core.js"></script>
+<script defer src="src/modules/community/community-leaderboard.js"></script>
+<script defer src="src/modules/community/community-questions.js"></script>
+<script defer src="src/modules/community/community-feedback.js"></script>
+<script defer src="src/modules/main.js"></script>
 </body>
 </html>

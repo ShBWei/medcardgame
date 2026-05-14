@@ -22,7 +22,6 @@
           btn.textContent = '🏆 排行榜';
           btn.addEventListener('click', function() { self.show(); });
           menu.appendChild(btn);
-          clearInterval(_checkInterval);
         }
       }, 500);
     },
@@ -47,6 +46,14 @@
 
       overlay.addEventListener('click', function(e) { if (e.target === overlay) self.close(); });
       setTimeout(function() { self._attachEvents(content); }, 50);
+
+      // Fetch global leaderboard from server in background, refresh when ready
+      this.fetchFromServer(function(data) {
+        if (data && self._overlay) {
+          var contentEl = self._overlay.querySelector('.mkc-modal');
+          if (contentEl) self._refresh(contentEl);
+        }
+      });
     },
 
     close: function() {
@@ -148,10 +155,16 @@
     },
 
     _getBattleData: function(period) {
+      // Try fetching from server first for global rankings
+      var self = this;
+      if (this._serverData && this._serverData.battle) {
+        return this._serverData.battle;
+      }
+
       var cached = MC.getLeaderboard('battle', period);
       if (cached.length > 0) return cached;
 
-      // Build from game stats
+      // Build from game stats (local fallback)
       var allStats = {};
       try {
         var users = JSON.parse(localStorage.getItem('medicard_users') || '[]');
@@ -167,7 +180,7 @@
           try {
             var stats = JSON.parse(localStorage.getItem(key)) || [];
             var wins = stats.filter(function(s) { return s.won; }).length;
-            var score = stats.reduce(function(a, s) { return a + (s.won ? 10 : 2) + (s.accuracy || 0) * 0.1; }, 0);
+            var score = stats.reduce(function(a, s) { return a + (s.score || 0); }, 0);
             var winRate = stats.length > 0 ? Math.round(wins / stats.length * 100) : 0;
             var name = '';
             for (var ui = 0; ui < users.length; ui++) {
@@ -191,7 +204,46 @@
     },
 
     _getContributionData: function(period) {
+      if (this._serverData && this._serverData.contribution) {
+        return this._serverData.contribution;
+      }
       return MC.getLeaderboard('contribution', period);
+    },
+
+    /** Fetch leaderboard from server */
+    fetchFromServer: function(callback) {
+      var self = this;
+      fetch('/api/leaderboard?type=battle&period=total')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (Array.isArray(data)) {
+            self._serverData = self._serverData || {};
+            self._serverData.battle = data;
+          }
+          return fetch('/api/leaderboard?type=contribution&period=total');
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (Array.isArray(data)) {
+            self._serverData = self._serverData || {};
+            self._serverData.contribution = data;
+          }
+          if (callback) callback(self._serverData);
+        })
+        .catch(function() {
+          // Server unavailable, fall back to localStorage
+          if (callback) callback(null);
+        });
+    },
+
+    /** Push stats to server after game ends */
+    pushToServer: function(entry) {
+      if (!entry || !entry.userId) return;
+      fetch('/api/leaderboard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify([entry])
+      }).catch(function() { /* ignore */ });
     },
 
     _myId: function() {

@@ -3,15 +3,34 @@
   "version": "4.0.0",
   "description": "MediCard Duel: Three Kingdoms Edition — Medical Card Battle Game",
   "main": "index.html",
+  "type": "commonjs",
   "scripts": {
     "build": "node tools/build.js",
     "watch": "node tools/build-watch.js",
-    "deploy": "bash tools/deploy.sh"
+    "deploy": "bash tools/deploy.sh",
+    "lint": "eslint 'src/**/*.js' 'tools/**/*.js'",
+    "lint:fix": "eslint --fix 'src/**/*.js' 'tools/**/*.js'",
+    "format": "prettier --write 'src/**/*.js' 'tools/**/*.js'",
+    "format:check": "prettier --check 'src/**/*.js' 'tools/**/*.js'",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "check": "npm run format:check && npm run lint && npm test"
   },
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "jsdom": "^29.1.1",
     "peer": "^1.0.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@vitest/ui": "^4.1.6",
+    "eslint": "^10.3.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.5",
+    "globals": "^17.6.0",
+    "jsdom": "^29.1.1",
+    "prettier": "^3.8.3",
+    "vitest": "^4.1.6"
   }
 }

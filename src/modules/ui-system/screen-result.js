@@ -15,6 +15,7 @@
       var stats = MediCard.Storage.getGameStats();
       var lastGame = stats[stats.length - 1] || {};
       var won = lastGame.won;
+      var score = lastGame.score || 0;
       var accuracy = lastGame.accuracy || 0;
       var accuracyDetail = lastGame.accuracyDetail || '0/0';
       var damageDealt = lastGame.damageDealt || 0;
@@ -42,7 +43,12 @@
         '<p style="color:var(--text-muted);margin-bottom:20px;font-size:13px;">' +
           (won ? '你成功击败了AI对手！' : '再接再厉，继续学习，下次一定能赢！') +
           ' · 难度：' + (diffLabels[difficulty] || '普通') +
-        '</p>';
+        '</p>' +
+        // Score display
+        '<div style="margin-bottom:8px;">' +
+          '<div style="font-size:42px;font-weight:900;font-family:var(--font-mono);color:#fbbf24;text-shadow:0 0 20px rgba(251,191,36,0.3);">' + score + '</div>' +
+          '<div style="font-size:11px;color:var(--text-muted);">本局得分 · 答对' + accuracyDetail.split('/')[0] + '题</div>' +
+        '</div>';
 
       // Detailed stats card
       html += '<div class="glass-panel" style="width:100%;max-width:360px;padding:16px;margin-bottom:16px;">' +
@@ -91,13 +97,12 @@
         MediCard.GameState.goToScreen('subject');
       });
       document.getElementById('btn-review').addEventListener('click', function() {
-        var wrongQIds = MediCard.Storage.getWrongQuestions();
-        if (wrongQIds.length === 0) {
-          alert('📝 错题本空空如也！\n\n继续保持，记得在答题弹窗中记录错题。');
+        if (MediCard.WrongQuestionBook && MediCard.WrongQuestionBook.getCount('wrong') > 0) {
+          MediCard.GameState.goToScreen('notebook');
+        } else if (window._medicardOpenNotebook) {
+          window._medicardOpenNotebook();
         } else {
-          alert('📝 错题复习\n\n已记录 ' + wrongQIds.length + ' 道错题\n' +
-            '正确率可通过反复练习提高！\n\n' +
-            '提示：答题后可查看解析和教材出处来巩固知识点。');
+          alert('📝 错题本空空如也！\n\n答题时答错的题目会自动记录到错题本中。');
         }
       });
       document.getElementById('btn-result-home').addEventListener('click', function() {

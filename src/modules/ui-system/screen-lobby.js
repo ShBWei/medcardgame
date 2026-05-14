@@ -2,6 +2,7 @@
  * MediCard 医杀 — Lobby Screen (V5.2)
  * Online 2-5 player identity game: create/join room, ready, start game via PeerJS P2P
  */
+/* global Peer */
 (function() {
   var MediCard = window.MediCard || {};
 
@@ -133,10 +134,14 @@
     },
 
     /* ============ Host: Create Room ============ */
+    _reconnectAttempts: 0,
+    _maxReconnectAttempts: 3,
+
     _createRoom(playerName, maxPlayers) {
       var self = this;
       this._mode = 'host';
       this._maxPlayers = maxPlayers;
+      this._reconnectAttempts = 0;
 
       console.log('[Lobby] _createRoom called, name=' + playerName + ', maxPlayers=' + maxPlayers);
 
@@ -160,12 +165,14 @@
         MediCard.NetworkHost._connections = [];
 
         MediCard.NetworkHost._peer = new Peer(peerId, {
-          host: cfg.host, port: cfg.port, path: cfg.path, secure: cfg.secure,
-          debug: 2
+          host: cfg.host, port: cfg.port, path: cfg.path, key: cfg.key, secure: cfg.secure,
+          config: cfg.config || { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] },
+          debug: 0  // Silence PeerJS debug noise; use our own logging
         });
 
         MediCard.NetworkHost._peer.on('open', function(id) {
           MediCard.NetworkHost._connected = true;
+          self._reconnectAttempts = 0; // Reset on successful connection
           self._showRoomPanel();
           self._renderPlayerSlots();
         });
@@ -177,13 +184,27 @@
 
         MediCard.NetworkHost._peer.on('error', function(err) {
           console.error('[Lobby] Peer error:', err.type, err.message);
-          alert('创建房间失败 [' + err.type + ']: ' + (err.message || '未知错误') + '\n请检查网络后重试。');
+          if (err.type === 'unavailable-id') {
+            alert('房间号冲突，请重新创建房间。');
+          } else if (err.type === 'server-error' || err.type === 'network') {
+            alert('无法连接到联机服务器，请确保服务器已启动。\n(' + err.message + ')');
+          } else {
+            alert('创建房间失败 [' + err.type + ']: ' + (err.message || '未知错误'));
+          }
           MediCard.GameState.goToScreen('title');
         });
 
         MediCard.NetworkHost._peer.on('disconnected', function() {
-          if (MediCard.NetworkHost._peer && !MediCard.NetworkHost._peer.destroyed) {
+          self._reconnectAttempts++;
+          console.log('[Lobby] Peer disconnected, attempt ' + self._reconnectAttempts + '/' + self._maxReconnectAttempts);
+          if (self._reconnectAttempts <= self._maxReconnectAttempts &&
+              MediCard.NetworkHost._peer && !MediCard.NetworkHost._peer.destroyed) {
             MediCard.NetworkHost._peer.reconnect();
+          } else {
+            console.log('[Lobby] Max reconnect attempts reached, giving up');
+            try { MediCard.NetworkHost._peer.destroy(); } catch(e) {}
+            alert('联机连接已断开，无法重新连接到服务器。\n请检查服务器状态后重试。');
+            MediCard.GameState.goToScreen('title');
           }
         });
 
@@ -208,7 +229,7 @@
             if (MediCard.RoomManager.addPlayer(name, conn.peer)) {
               conn.send(MediCard.SyncProtocol.pack(
                 MediCard.SyncProtocol.MessageType.JOIN_ACCEPT,
-                { roomCode: self._roomCode, players: MediCard.RoomManager.players, maxPlayers: self._maxPlayers }
+                { roomCode: self._roomCode, players: MediCard.RoomManager.players, maxPlayers: self._maxPlayers, selectedSubjects: MediCard.GameState.selectedSubjects.slice() }
               ));
               self._players = MediCard.RoomManager.players.slice();
               self._renderPlayerSlots();
@@ -243,7 +264,9 @@
         self._broadcastPlayers();
       });
 
-      conn.on('error', function(err) {});
+      conn.on('error', function(err) {
+        console.error('[Lobby] Host connection error:', err.type, err.message);
+      });
     },
 
     _broadcastPlayers() {
@@ -263,6 +286,7 @@
       var self = this;
       this._mode = 'client';
       this._roomCode = roomCode;
+      this._reconnectAttempts = 0;
 
       if (typeof Peer === 'undefined') {
         alert('PeerJS 联机库未加载，请检查网络连接后刷新页面。');
@@ -278,24 +302,39 @@
         }
 
         MediCard.NetworkClient._peer = new Peer(clientId, {
-          host: cfg.host, port: cfg.port, path: cfg.path, secure: cfg.secure,
-          debug: 2
+          host: cfg.host, port: cfg.port, path: cfg.path, key: cfg.key, secure: cfg.secure,
+          config: cfg.config || { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] },
+          debug: 0
         });
 
         MediCard.NetworkClient._peer.on('open', function(id) {
+          self._reconnectAttempts = 0;
           var hostId = 'medicard-' + roomCode + '-host';
           var conn = MediCard.NetworkClient._peer.connect(hostId, { reliable: true });
           self._setupClientConnection(conn, playerName);
         });
 
         MediCard.NetworkClient._peer.on('error', function(err) {
-          alert('加入房间失败: ' + (err.message || err.type || '未知错误') + '\n请确认房间号正确且房主在线。');
+          console.error('[Lobby] Client Peer error:', err.type, err.message);
+          if (err.type === 'server-error' || err.type === 'network') {
+            alert('无法连接到联机服务器，请确保服务器已启动。\n(' + err.message + ')');
+          } else {
+            alert('加入房间失败: ' + (err.message || err.type || '未知错误') + '\n请确认房间号正确且房主在线。');
+          }
           MediCard.GameState.goToScreen('title');
         });
 
         MediCard.NetworkClient._peer.on('disconnected', function() {
-          if (MediCard.NetworkClient._peer && !MediCard.NetworkClient._peer.destroyed) {
+          self._reconnectAttempts++;
+          console.log('[Lobby] Client Peer disconnected, attempt ' + self._reconnectAttempts + '/' + self._maxReconnectAttempts);
+          if (self._reconnectAttempts <= self._maxReconnectAttempts &&
+              MediCard.NetworkClient._peer && !MediCard.NetworkClient._peer.destroyed) {
             MediCard.NetworkClient._peer.reconnect();
+          } else {
+            console.log('[Lobby] Max reconnect attempts reached for client');
+            try { MediCard.NetworkClient._peer.destroy(); } catch(e) {}
+            alert('无法连接到联机服务器，请检查服务器状态后重试。');
+            MediCard.GameState.goToScreen('title');
           }
         });
 
@@ -308,8 +347,22 @@
     _setupClientConnection(conn, playerName) {
       var self = this;
       MediCard.NetworkClient._hostConn = conn;
+      var _connectionOpened = false;
+      var _connectionTimer = null;
+
+      // Connection timeout: 15 seconds
+      _connectionTimer = setTimeout(function() {
+        if (!_connectionOpened) {
+          try { conn.close(); } catch(e) {}
+          alert('连接房主超时，请确认：\n1. 房间号输入正确\n2. 房主仍在房间中\n3. 网络连接正常');
+          self._cleanupNetwork();
+          MediCard.GameState.goToScreen('lobby');
+        }
+      }, 15000);
 
       conn.on('open', function() {
+        _connectionOpened = true;
+        if (_connectionTimer) { clearTimeout(_connectionTimer); _connectionTimer = null; }
         conn.send(MediCard.SyncProtocol.pack(
           MediCard.SyncProtocol.MessageType.JOIN_REQUEST,
           { name: playerName }
@@ -327,6 +380,10 @@
             self._roomCode = msg.d.roomCode;
             self._players = msg.d.players || [];
             self._maxPlayers = msg.d.maxPlayers || 2;
+            if (msg.d.selectedSubjects && msg.d.selectedSubjects.length > 0) {
+              MediCard.GameState.setSelectedSubjects(msg.d.selectedSubjects);
+              MediCard.QuestionLoader.init(msg.d.selectedSubjects);
+            }
             self._renderPlayerSlots();
             break;
 
@@ -341,6 +398,11 @@
               self._players = msg.d.players;
               self._maxPlayers = msg.d.maxPlayers || self._maxPlayers;
               self._renderPlayerSlots();
+            } else if (msg.d.type === 'subjects') {
+              if (msg.d.subjects && msg.d.subjects.length > 0) {
+                MediCard.GameState.setSelectedSubjects(msg.d.subjects);
+                MediCard.QuestionLoader.init(msg.d.subjects);
+              }
             }
             break;
 
@@ -355,12 +417,27 @@
       });
 
       conn.on('close', function() {
-        alert('与房主的连接已断开');
-        self._cleanupNetwork();
-        MediCard.GameState.goToScreen('title');
+        if (_connectionTimer) { clearTimeout(_connectionTimer); _connectionTimer = null; }
+        if (!_connectionOpened) {
+          alert('无法连接到房主，可能原因：\n1. 房主已离开房间\n2. 网络防火墙阻止了P2P连接\n3. 房间号输入错误\n\n请确认后重试。');
+          self._cleanupNetwork();
+          MediCard.GameState.goToScreen('lobby');
+        } else {
+          alert('与房主的连接已断开');
+          self._cleanupNetwork();
+          MediCard.GameState.goToScreen('title');
+        }
       });
 
-      conn.on('error', function(err) {});
+      conn.on('error', function(err) {
+        if (_connectionTimer) { clearTimeout(_connectionTimer); _connectionTimer = null; }
+        console.error('[Lobby] Client connection error:', err.type, err.message);
+        if (!_connectionOpened) {
+          alert('连接房主失败 [' + (err.type || 'unknown') + ']\n请确认房间号正确且房主在线。');
+          self._cleanupNetwork();
+          MediCard.GameState.goToScreen('lobby');
+        }
+      });
     },
 
     /* ============ UI Rendering ============ */
@@ -394,9 +471,18 @@
       if (gameActions) {
         gameActions.style.display = 'block';
         if (this._mode === 'host') {
-          gameActions.innerHTML = '<button class="btn btn-gold btn-lg" id="btn-start-game" disabled>⚔️ 开始对决</button>';
+          gameActions.innerHTML = '' +
+            '<div style="display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;">' +
+              '<button class="btn btn-secondary" id="btn-add-ai">🤖 添加AI</button>' +
+              '<select class="glass-input" id="ai-difficulty" style="width:auto;padding:8px 12px;">' +
+                '<option value="easy">简单</option>' +
+                '<option value="normal" selected>普通</option>' +
+                '<option value="hard">困难</option>' +
+              '</select>' +
+            '</div>' +
+            '<button class="btn btn-gold btn-lg" id="btn-start-game" disabled style="margin-top:12px;">⚔️ 开始对决</button>';
           var self = this;
-          setTimeout(function() { self._wireStartButton(); }, 100);
+          setTimeout(function() { self._wireStartButton(); self._wireAddAIButton(); }, 100);
         } else {
           gameActions.innerHTML = '<button class="btn btn-primary btn-lg" id="btn-ready">✅ 准备</button>';
           var self2 = this;
@@ -455,6 +541,37 @@
       });
     },
 
+    _wireAddAIButton() {
+      var self = this;
+      var btn = document.getElementById('btn-add-ai');
+      if (!btn) return;
+      btn.addEventListener('click', function() {
+        if (MediCard.RoomManager.getPlayerCount() >= self._maxPlayers) {
+          alert('房间已满，无法添加更多AI');
+          return;
+        }
+        var diffEl = document.getElementById('ai-difficulty');
+        var diff = diffEl ? diffEl.value : 'normal';
+        var aiNumber = MediCard.RoomManager.players.filter(function(p) { return p.isAI; }).length + 1;
+        var name = 'AI-' + ({ easy: '简单', normal: '普通', hard: '困难' }[diff] || '普通') + '-' + aiNumber;
+        MediCard.RoomManager.addAIPlayer(name, diff);
+        self._players = MediCard.RoomManager.players.slice();
+        self._renderPlayerSlots();
+        self._updateRoomInfo();
+      });
+    },
+
+    _updateRoomInfo() {
+      var panel = document.getElementById('room-panel');
+      if (!panel || panel.style.display === 'none') return;
+      var count = this._players.length;
+      var max = this._maxPlayers;
+      var infoEl = panel.querySelector('p');
+      if (infoEl) {
+        infoEl.innerHTML = '将此房间号分享给好友（' + count + '/' + max + '人）';
+      }
+    },
+
     _renderPlayerSlots() {
       var slots = document.getElementById('player-slots');
       if (!slots) return;
@@ -466,12 +583,13 @@
       for (var i = 0; i < max; i++) {
         var p = players[i];
         if (p) {
-          var icon = p.isHost ? '👑' : '🎮';
-          var status = p.ready ? ' ✓已准备' : ' 未准备...';
-          html += '<div class="player-slot filled' + (p.ready ? ' ready' : '') + '">' +
+          var icon = p.isHost ? '👑' : (p.isAI ? '🤖' : '🎮');
+          var status = p.isAI ? ' AI机器人 · ' + ({ easy: '简单', normal: '普通', hard: '困难' }[p.aiDifficulty] || '普通') : (p.ready ? ' ✓已准备' : ' 未准备...');
+          var statusColor = p.isAI ? '#a855f7' : (p.ready ? '#10b981' : 'var(--text-muted)');
+          html += '<div class="player-slot filled' + (p.ready ? ' ready' : '') + (p.isAI ? ' ai' : '') + '">' +
             '<div class="player-slot-icon">' + icon + '</div>' +
             '<div class="player-slot-name">' + p.name + '</div>' +
-            '<div style="font-size:10px;color:' + (p.ready ? '#10b981' : 'var(--text-muted)') + ';">' + status + '</div>' +
+            '<div style="font-size:10px;color:' + statusColor + ';">' + status + '</div>' +
             '</div>';
         } else {
           html += '<div class="player-slot"><div class="player-slot-icon">❓</div><div class="player-slot-name">等待加入</div></div>';
@@ -562,6 +680,8 @@
                 handCount: p.hand.length,
                 alive: true,
                 isHost: p.isHost,
+                isAI: !!p.isAI,
+                aiDifficulty: p.aiDifficulty || 'normal',
                 equipment: p.equipment,
                 hand: isMe ? p.hand.slice() : []
               };
@@ -578,6 +698,7 @@
       MediCard.ScreenBattle._multiplayerPlayers = players;
       MediCard.ScreenBattle._multiplayerDeck = deck;
       MediCard.ScreenBattle._multiplayerTotalPlayers = players.length;
+      if (MediCard.BattleLogger) MediCard.BattleLogger.log('SYSTEM', 'game_start_host', 'Host started game with ' + players.length + ' players');
       MediCard.UI.startGame();
     },
 
@@ -594,16 +715,18 @@
           resources: p.resources,
           hand: i === myIdx ? (p.hand || []) : [],
           alive: true,
-          isAI: false,
+          isAI: !!p.isAI,
+          aiDifficulty: p.aiDifficulty || 'normal',
           isHost: p.isHost,
-          peerId: i === 0 ? 'host' : 'client_' + i,
+          peerId: p.isAI ? ('ai_' + i) : (i === 0 ? 'host' : 'client_' + i),
           equipment: { weapon: null, armor: null, accessory: null, mount: null, tool: null },
           delayedTactics: [],
           attackBonus: 0,
           immuneUntilNextTurn: false,
           skipNextPlayPhase: false,
           skipNextTurn: false,
-          vaccineTurns: 0
+          vaccineTurns: 0,
+          maxAttacks: 1
         };
       });
 
@@ -623,6 +746,7 @@
       MediCard.ScreenBattle._multiplayerPlayers = players;
       MediCard.ScreenBattle._multiplayerTotalPlayers = totalPlayers;
       MediCard.ScreenBattle._myPlayerIndex = myIdx;
+      if (MediCard.BattleLogger) MediCard.BattleLogger.log('SYSTEM', 'game_start_client', 'Client joined game, myIndex=' + myIdx);
       MediCard.UI.startGame();
     },
 

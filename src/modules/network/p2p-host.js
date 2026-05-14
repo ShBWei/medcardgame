@@ -3,6 +3,7 @@
  * Host authority for multiplayer games via PeerJS
  * Handles room creation, game start, state sync, turn coordination
  */
+/* global Peer */
 (function() {
   var MediCard = window.MediCard || {};
 
@@ -27,7 +28,7 @@
 
       try {
         this._peer = new Peer(peerId, {
-          host: cfg.host, port: cfg.port, path: cfg.path, secure: cfg.secure, debug: cfg.debug
+          host: cfg.host, port: cfg.port, path: cfg.path, key: cfg.key, secure: cfg.secure, debug: cfg.debug
         });
 
         this._peer.on('open', function(id) {
@@ -83,33 +84,6 @@
                 MediCard.SyncProtocol.MessageType.JOIN_REJECT,
                 { reason: '房间已满' }
               ));
-            }
-            break;
-
-          case MediCard.SyncProtocol.MessageType.PLAYER_READY:
-            MediCard.RoomManager.setPlayerReady(conn.peer);
-            self._broadcastPlayers();
-            // Check if all ready to start
-            if (MediCard.RoomManager.allReady() && MediCard.RoomManager.players.length >= 2) {
-              setTimeout(function() { self.startGame(); }, 1000);
-            }
-            break;
-
-          case MediCard.SyncProtocol.MessageType.PLAY_CARD:
-            if (self._gameStarted) {
-              self._handlePlayCard(conn.peer, msg.d);
-            }
-            break;
-
-          case MediCard.SyncProtocol.MessageType.ANSWER_QUESTION:
-            if (self._gameStarted) {
-              self._handleAnswer(conn.peer, msg.d);
-            }
-            break;
-
-          case MediCard.SyncProtocol.MessageType.END_TURN:
-            if (self._gameStarted) {
-              self._handleEndTurn(conn.peer);
             }
             break;
 
@@ -267,8 +241,6 @@
       var card = player.hand[cardIdx];
       if (!MediCard.CardEffects.canPlay(player, card)) return;
 
-      // Spend MP
-      MediCard.Resources.spendMP(player, card.energyCost);
       // Find target (default: first player going clockwise)
       var targetIdx = (playerIdx + 1) % gs.players.length;
       var target = gs.players[targetIdx];
@@ -292,9 +264,6 @@
       // Remove card from hand
       player.hand.splice(cardIdx, 1);
       gs.discardPile.push(card);
-
-      // Gain KP
-      MediCard.Resources.gainKP(player, 1);
 
       // Broadcast result
       this.broadcast(MediCard.SyncProtocol.pack(
@@ -339,13 +308,11 @@
       // Next player draws 2 cards
       var nextPlayer = gs.players[gs.currentPlayerIndex];
       var drawn = [];
-      for (var d = 0; d < 2 && gs.deck.length > 0; d++) {
+      for (var d = 0; d < MediCard.Config.defaults.drawPerTurn && gs.deck.length > 0; d++) {
         var drawnCard = gs.deck.pop();
         drawn.push(drawnCard);
         nextPlayer.hand.push(drawnCard);
       }
-      MediCard.Resources.gainMP(nextPlayer, 2);
-
       // Apply lord turn start heal
       MediCard.IdentitySkills.applyTurnStartEffects(nextPlayer);
 

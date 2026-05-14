@@ -1,12 +1,12 @@
 /**
- * MediCard 医杀 — Deploy Configuration (V5.2)
+ * MediCard 医杀 — Deploy Configuration (V5.3)
  * Full 120-card deck: 72 basic + 30 tactic + 12 equipment + 6 delayed
  */
 (function() {
   const MediCard = window.MediCard || {};
 
   MediCard.Config = {
-    version: '5.2.0',
+    version: '5.3.0',
     appName: 'MediCard 医杀',
 
     get mode() {
@@ -17,18 +17,41 @@
 
     peerjs: {
       host: window.location.hostname || 'localhost',
-      port: 9000,
+      port: (function() {
+        var hn = window.location.hostname;
+        // Local dev: PeerJS runs on 9000, HTTP on 8080 — connect directly
+        if (hn === 'localhost' || hn === '127.0.0.1') return 9000;
+        // Remote (behind nginx): WebSocket /medicard proxied through 80/443
+        return Number(window.location.port) || (window.location.protocol === 'https:' ? 443 : 80);
+      })(),
       path: '/medicard',
+      key: 'medicard',
       secure: false,
-      debug: 0
+      debug: 0,
+      // ICE servers for NAT traversal (STUN + TURN for symmetric NAT)
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' },
+          { urls: 'stun:stun3.l.google.com:19302' },
+          { urls: 'stun:stun4.l.google.com:19302' },
+          // Public TURN servers for symmetric NAT traversal
+          {
+            urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443', 'turn:openrelay.metered.ca:443?transport=tcp'],
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+          }
+        ]
+      }
     },
 
     defaults: {
-      maxPlayers: 2,
+      maxPlayers: 5,
       handSize: 4,
       initialHP: 4,
       lordHP: 5,
-      drawPerTurn: 2,
+      drawPerTurn: 3,
       deckSize: 120,
       turnTimeLimit: 60,
       answerTimeCommon: 15,
@@ -37,26 +60,19 @@
       answerTimeLegendary: 30
     },
 
-    // Card type definitions with answer direction
-    cardTypes: {
-      attack:   { name: '医学攻击', icon: '⚔️', color: '#ef4444', answerer: 'opponent', category: 'basic' },
-      defense:  { name: '医学防御', icon: '🛡️', color: '#3b82f6', answerer: 'self',     category: 'basic' },
-      heal:     { name: '医学治疗', icon: '💚', color: '#10b981', answerer: 'self',     category: 'basic' },
-      tactic:   { name: '锦囊',     icon: '📋', color: '#a855f7', answerer: 'self',     category: 'tactic' },
-      equipment:{ name: '装备',     icon: '🔧', color: '#10b981', answerer: 'self',     category: 'equipment' },
-      delayed:  { name: '延时锦囊', icon: '⏳', color: '#f97316', answerer: 'opponent', category: 'delayed' }
-    },
-
     // Identity HP values
     identityHP: {
       lord: 5, loyalist: 4, rebel: 4, spy: 4
     },
 
-    // Full deck composition (120 cards)
+    // 绝杀 replaces 20% of attack cards during deck generation
+    // 决斗 is a standalone card type added separately
     fullDeckComposition: {
       basic: {
-        attack: 48, defense: 16, heal: 8
+        attack: 36, defense: 20, heal: 8, yingjiYuan: 4
       },
+      jueshaRatio: 0.2,      // 20% of attack cards become 绝杀
+      juedouCount: 4,        // 4 决斗 cards per deck
       tactic: {
         huiZhen: 6,    // 会诊 - draw 2
         wuZhen: 4,     // 误诊 - target discards 1
@@ -67,14 +83,20 @@
         mianYi: 3,     // 免疫屏障 - immune next turn
         qunTi: 2,      // 群体会诊 - teammates draw 1
         jiaoCha: 2,    // 交叉感染 - all enemies 1 dmg
-        duoJi: 2      // 多重打击 - reset attack limit
+        duoJi: 2,          // 多重打击 - reset attack limit
+        qiGuanZhaiChu: 2, // 器官摘除 - remove equip/hand
+        yangBenCaiJi: 2,  // 样本采集 - steal equip/hand
+        leiDian: 2,       // 雷电牌 - chain judgment 0-9 match
+        bingLiFenXi: 2    // 病历分析 - peek top 3 reorder
       },
       equipment: {
         shouShuDao: 3,   // 手术刀 - weapon
         baiDaGua: 3,     // 白大褂 - armor
         fangHu: 2,       // 防护面罩 - accessory
+        shuYeDai: 2,     // 输液袋 - sacrifice for heal
         jiuHuChe: 2,     // 救护车 - mount
-        tingZhenQi: 2    // 听诊器 - tool
+        tingZhenQi: 2,   // 听诊器 - tool
+        yiXueCiDian: 2   // 医学辞典 - peek 2 for answer ref
       },
       delayed: {
         bingDu: 3,      // 病毒感染
@@ -94,16 +116,22 @@
       mianYi:    { name: '免疫屏障', icon: '🛡️', effect: '下回合免疫所有伤害',            answerer: 'self', count: 3 },
       qunTi:     { name: '群体会诊', icon: '👥', effect: '所有队友各摸1张牌',             answerer: 'self', count: 2 },
       jiaoCha:   { name: '交叉感染', icon: '🦠', effect: '对所有敌方玩家各造成1点伤害',    answerer: 'all',  count: 2 },
-      duoJi:     { name: '多重打击', icon: '⚡', effect: '本回合可以额外使用攻击牌（重置攻击次数）', answerer: 'self', count: 2 }
+      duoJi:         { name: '多重打击', icon: '⚡', effect: '本回合可以额外使用攻击牌（重置攻击次数）', answerer: 'self', count: 2 },
+      qiGuanZhaiChu: { name: '器官摘除', icon: '🫁', effect: '答对后选择目标对手，摘除其1个装备（可见）或随机弃其1张手牌（盲抽）', answerer: 'self', count: 2 },
+      yangBenCaiJi:  { name: '样本采集', icon: '🧪', effect: '答对后随机偷取对手1件装备（自动装上）或1张手牌（加入手牌）', answerer: 'self', count: 2 },
+      leiDian:       { name: '雷电牌',   icon: '⚡', effect: '选定数字0~9，从下家开始顺时针判定，随机数与所选一致时扣3血，不一致则传递给下一位', answerer: 'self', count: 2 },
+      bingLiFenXi:   { name: '病历分析', icon: '📋', effect: '查看牌库顶3张，以任意顺序放回（无需答题）', answerer: 'self', count: 2 }
     },
 
     // Equipment card definitions
     equipmentDefs: {
-      shouShuDao:  { name: '手术刀',   icon: '🔪', effect: '攻击距离+1，伤害+1',         slot: 'weapon',    count: 3 },
+      shouShuDao:  { name: '手术刀',   icon: '🔪', effect: '攻击命中后可答题，答对额外+1伤害', slot: 'weapon',    count: 3 },
       baiDaGua:    { name: '白大褂',   icon: '👨‍⚕️', effect: '受到伤害时减少1点',          slot: 'armor',     count: 3 },
       fangHu:      { name: '防护面罩', icon: '😷', effect: '免疫所有锦囊牌效果',          slot: 'accessory', count: 2 },
+      shuYeDai:    { name: '输液袋',   icon: '💧', effect: '可弃置此装备回复1点HP',      slot: 'accessory', count: 2 },
       jiuHuChe:    { name: '救护车',   icon: '🚑', effect: '攻击距离-1（更容易打到人）',  slot: 'mount',     count: 2 },
-      tingZhenQi:  { name: '听诊器',   icon: '🩺', effect: '每回合开始可查看1名玩家1张手牌', slot: 'tool',    count: 2 }
+      tingZhenQi:  { name: '听诊器',   icon: '🩺', effect: '每回合开始可查看1名玩家1张手牌', slot: 'tool',    count: 2 },
+      yiXueCiDian: { name: '医学辞典', icon: '📖', effect: '答题时可翻牌库顶2张，选1张作为判定参考', slot: 'tool', count: 2 }
     },
 
     // Delayed tactic definitions
@@ -133,14 +161,14 @@
     ],
 
     subjectMeta: {
-      'cell-biology':          { name: '细胞生物学',   icon: '🧬', color: '#06b6d4' },
-      'biochemistry':          { name: '生物化学',     icon: '⚗️', color: '#8b5cf6' },
-      'physiology':            { name: '生理学',       icon: '❤️', color: '#f43f5e' },
-      'pathology':             { name: '病理学',       icon: '🦠', color: '#ef4444' },
-      'histology-embryology':  { name: '组织与胚胎学', icon: '🔬', color: '#10b981' },
-      'systematic-anatomy':    { name: '系统解剖学',   icon: '🦴', color: '#f97316' },
-      'immunology':            { name: '免疫学',       icon: '🛡️', color: '#3b82f6' },
-      'microbiology':          { name: '微生物学',     icon: '🧫', color: '#84cc16' }
+      'cell-biology':          { name: '细胞生物学',   icon: '🧬', color: '#06b6d4', questionCount: 120 },
+      'biochemistry':          { name: '生物化学',     icon: '⚗️', color: '#8b5cf6', questionCount: 1258 },
+      'physiology':            { name: '生理学',       icon: '❤️', color: '#f43f5e', questionCount: 909 },
+      'pathology':             { name: '病理学',       icon: '🦠', color: '#ef4444', questionCount: 740 },
+      'histology-embryology':  { name: '组织与胚胎学', icon: '🔬', color: '#10b981', questionCount: 578 },
+      'systematic-anatomy':    { name: '系统解剖学',   icon: '🦴', color: '#f97316', questionCount: 1981 },
+      'immunology':            { name: '免疫学',       icon: '🛡️', color: '#3b82f6', questionCount: 1543 },
+      'microbiology':          { name: '微生物学',     icon: '🧫', color: '#84cc16', questionCount: 1073 }
     }
   };
 

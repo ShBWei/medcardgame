@@ -73,11 +73,24 @@
      */
     sanitize: function(input, maxLen) {
       if (!input || typeof input !== 'string') return '';
-      // Strip any HTML/XML tags
-      var cleaned = input.replace(/<[^>]*>/g, '');
-      // Strip script-related content
+      var cleaned = input;
+      // Strip HTML/XML tags recursively
+      while (/<[^>]*>/.test(cleaned)) {
+        cleaned = cleaned.replace(/<[^>]*>/g, '');
+      }
+      // Strip event handlers, pseudo-protocols, encoded variants
       cleaned = cleaned.replace(/javascript:/gi, '');
+      cleaned = cleaned.replace(/data:text\/html/gi, '');
+      cleaned = cleaned.replace(/vbscript:/gi, '');
       cleaned = cleaned.replace(/on\w+\s*=/gi, '');
+      // Strip encoded attack patterns
+      cleaned = cleaned.replace(/&#x?[0-9a-f]+;?/gi, '');
+      cleaned = cleaned.replace(/%[0-9a-f]{2}/gi, '');
+      // Strip SQL injection patterns
+      cleaned = cleaned.replace(/(\bSELECT\b|\bINSERT\b|\bDELETE\b|\bUPDATE\b|\bDROP\b|\bALTER\b|\bEXEC\b|\bUNION\b)/gi, '');
+      // Strip null bytes and control chars
+      // eslint-disable-next-line no-control-regex
+      cleaned = cleaned.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
       // Trim and limit
       cleaned = cleaned.trim();
       if (maxLen && cleaned.length > maxLen) {

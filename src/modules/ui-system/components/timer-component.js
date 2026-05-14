@@ -62,6 +62,12 @@
       return this._timeLeft;
     },
 
+    /** Add seconds to the current countdown */
+    addTime(seconds) {
+      if (this._timeLeft <= 0) return;
+      this._timeLeft += Math.max(0, Math.round(seconds));
+    },
+
     _formatTime(seconds) {
       var m = Math.floor(seconds / 60);
       var s = seconds % 60;

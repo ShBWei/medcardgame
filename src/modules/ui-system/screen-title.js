@@ -70,8 +70,7 @@
   window._medicardGoMulti = function() {
     MediCard.Audio.playButtonClick();
     MediCard.GameState.setMode('multiplayer');
-    MediCard.ScreenSubject._forMultiplayer = true;
-    MediCard.GameState.goToScreen('subject');
+    MediCard.GameState.goToScreen('lobby');
   };
   window._medicardShowStats = function() {
     MediCard.Audio.playButtonClick();
@@ -131,17 +130,56 @@
     overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
   };
 
+  var _sessionId = null;
+  function _getSessionId() {
+    if (_sessionId) return _sessionId;
+    try {
+      _sessionId = sessionStorage.getItem('medicard_sid');
+      if (!_sessionId) {
+        _sessionId = 's' + Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
+        sessionStorage.setItem('medicard_sid', _sessionId);
+      }
+    } catch(e) {
+      _sessionId = 's' + Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
+    }
+    return _sessionId;
+  }
+
+  function _fetchServerStats() {
+    var onlineEl = document.getElementById('stat-online');
+    var cumulativeEl = document.getElementById('stat-cumulative');
+    var loadEl = document.getElementById('stat-load');
+    if (!onlineEl && !cumulativeEl && !loadEl) return;
+    try {
+      fetch('/api/player-stats?sid=' + encodeURIComponent(_getSessionId()))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (onlineEl) onlineEl.textContent = (data.online != null ? data.online : '0').toString();
+          if (cumulativeEl) cumulativeEl.textContent = (data.cumulative != null ? data.cumulative : '0').toString();
+          if (loadEl) loadEl.textContent = (data.loadPercent != null ? data.loadPercent : '0').toString();
+        })
+        .catch(function() {
+          if (onlineEl) onlineEl.textContent = '--';
+          if (cumulativeEl) cumulativeEl.textContent = '--';
+          if (loadEl) loadEl.textContent = '--';
+        });
+    } catch(e) {
+      if (onlineEl) onlineEl.textContent = '--';
+      if (cumulativeEl) cumulativeEl.textContent = '--';
+      if (loadEl) loadEl.textContent = '--';
+    }
+  }
+
   MediCard.ScreenTitle = {
+    _statsTimer: null,
+
     render() {
       var screen = document.getElementById('screen-title');
       if (!screen) return;
-      var stats = MediCard.Storage.getGameStats();
-      var winCount = stats.filter(function(s) { return s.won; }).length;
-      var totalGames = stats.length;
       var totalQuestions = 0;
+      var meta = MediCard.Config.subjectMeta || {};
       MediCard.Config.subjectCategories[0].subjects.forEach(function(s) {
-        var q = MediCard.QuestionLoader.getSubject(s);
-        totalQuestions += q.length;
+        totalQuestions += (meta[s] && meta[s].questionCount) || 0;
       });
 
       var currentUser = MediCard.Storage.getCurrentUser();
@@ -154,7 +192,14 @@
           '<div class="title-logo-icon">⚕️</div>' +
           '<h1 class="title-game-name">MediCard 医杀</h1>' +
           '<p class="title-subtitle">医学知识 · 策略对战</p>' +
-          '<p class="title-version">V5.2 · ' + MediCard.Config.subjectCategories[0].subjects.length + '学科 · ' + totalQuestions + '题</p>' +
+          '<p class="title-version">V5.3 · ' + MediCard.Config.subjectCategories[0].subjects.length + '学科 · ' + totalQuestions + '题</p>' +
+        '</div>' +
+        '<div id="title-server-stats" style="text-align:center;font-size:11px;color:var(--text-muted);margin-bottom:8px;padding:6px 12px;background:rgba(0,0,0,0.15);border-radius:8px;display:block;max-width:320px;margin-left:auto;margin-right:auto;">' +
+          '<span>🟢 在线 <b id="stat-online">-</b></span>' +
+          '<span style="margin:0 8px;">·</span>' +
+          '<span>👥 累计 <b id="stat-cumulative">-</b></span>' +
+          '<span style="margin:0 8px;">·</span>' +
+          '<span>📊 负载 <b id="stat-load">-</b>%</span>' +
         '</div>' +
         '<div class="title-user-bar">' +
           '<span class="title-user-avatar" style="background:' + avatarColor + ';">' + avatarIcon + '</span>' +
@@ -164,24 +209,26 @@
         '<div class="title-menu stagger-children">' +
           '<button class="btn btn-primary btn-lg" id="btn-single">⚔️ 单人练习</button>' +
           '<button class="btn btn-gold btn-lg" id="btn-multi">🌐 联机对战</button>' +
-          '<button class="btn btn-ghost" id="btn-stats">📊 学习统计</button>' +
-        '</div>' +
-        (totalGames > 0 ? '<div class="title-stats">' +
-          '<span>🎮 ' + totalGames + '场</span>' +
-          '<span>🏆 ' + winCount + '胜</span>' +
-          '<span>📈 ' + (totalGames > 0 ? (winCount/totalGames*100).toFixed(0) : 0) + '%胜率</span>' +
-        '</div>' : '');
+          '<button class="btn btn-secondary btn-lg" id="btn-notebook">📝 错题本</button>' +
+        '</div>';
+
+      _fetchServerStats();
     },
 
     attachEvents() {
+      var self = this;
       var btnSingle = document.getElementById('btn-single');
       var btnMulti = document.getElementById('btn-multi');
-      var btnStats = document.getElementById('btn-stats');
       var btnLogout = document.getElementById('btn-logout');
 
       if (btnSingle) btnSingle.addEventListener('click', function(e) { window._medicardGoSingle(); });
       if (btnMulti) btnMulti.addEventListener('click', function(e) { window._medicardGoMulti(); });
-      if (btnStats) btnStats.addEventListener('click', function() { window._medicardShowStats(); });
+      var btnNotebook = document.getElementById('btn-notebook');
+      if (btnNotebook) btnNotebook.addEventListener('click', function(e) { window._medicardOpenNotebook(); });
+
+      // Refresh server stats every 30s
+      if (self._statsTimer) clearInterval(self._statsTimer);
+      self._statsTimer = setInterval(function() { try { _fetchServerStats(); } catch(e) {} }, 30000);
 
       if (btnLogout) {
         btnLogout.addEventListener('click', function() {
@@ -195,9 +242,7 @@
   };
 
   function _esc(str) {
-    var div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+    return MediCard.Crypto.escapeHtml(str);
   }
 
   window.MediCard = MediCard;

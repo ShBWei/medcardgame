@@ -33,6 +33,11 @@
   transition: border-color var(--transition-fast);
 }
 
+.glass-input:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 1px;
+}
+
 .glass-input:focus {
   border-color: var(--accent-cyan);
   box-shadow: 0 0 8px rgba(6, 182, 212, 0.15);

@@ -17,8 +17,7 @@
     ACHIEVEMENTS: 'mkc_achievements',
     CONTRIBUTIONS: 'mkc_contributions',
     LEADERBOARD: 'mkc_leaderboard',
-    WEEKLY_RESET: 'mkc_weekly_reset',
-    CHALLENGE_COUNT: 'mkc_challenge_count'
+    WEEKLY_RESET: 'mkc_weekly_reset'
   };
 
   /* ============ Reputation ============ */
@@ -132,18 +131,46 @@
     return entry ? entry.weightedScore || 0 : 0;
   };
 
+  /** Check if a question has reached the auto-escalate threshold (>= 3 weighted flags) */
+  MC.checkFlagThreshold = function(questionId) {
+    return MC.getFlagScore(questionId) >= 3;
+  };
+
+  /** Escalate a flagged game question into the proposals system for public review */
+  MC.autoEscalateFlaggedQuestion = function(questionId, questionText, originalAnswer, explanation) {
+    // Only escalate if threshold met and no existing active proposal
+    var existing = MC.getProposals().filter(function(p) {
+      return p.questionId === questionId && p.status === 'active';
+    });
+    if (existing.length > 0) return existing[0];
+
+    var flags = MC.getFlags();
+    var entry = flags[questionId];
+    if (!entry || (entry.weightedScore || 0) < 3) return null;
+
+    var reasons = (entry.reasons || []).map(function(r) { return r.reason; }).join('、');
+    var proposal = MC.addProposal(
+      questionId,
+      originalAnswer || '',
+      (explanation || '多位玩家质疑此题答案') + '（质疑理由: ' + (reasons || '答案可能有误') + '）',
+      questionText || ''
+    );
+    return proposal;
+  };
+
   /* ============ Proposals ============ */
   MC.getProposals = function() {
     return _read(K.PROPOSALS) || [];
   };
 
-  MC.addProposal = function(questionId, correctedAnswer, explanation) {
+  MC.addProposal = function(questionId, correctedAnswer, explanation, questionText) {
     var proposals = MC.getProposals();
     var p = {
       id: 'prop_' + Date.now(),
       questionId: questionId,
       correctedAnswer: correctedAnswer,
       explanation: explanation,
+      questionText: questionText || '',
       authorId: _currentUserId(),
       authorName: _currentUserName(),
       votes: {}, // {userId: {vote: 'support'|'oppose', weight: number}}
@@ -175,7 +202,7 @@
     var limits = _read(K.DAILY_LIMITS);
     var today = new Date().toDateString();
     if (!limits || limits.date !== today) {
-      limits = { date: today, submits: 0, reviews: 0, challenges: 0, rejectStreak: 0, lastRejectDate: '' };
+      limits = { date: today, submits: 0, reviews: 0, rejectStreak: 0, lastRejectDate: '' };
       _write(K.DAILY_LIMITS, limits);
     }
     return limits;
@@ -189,10 +216,6 @@
     return MC.getDailyLimits().reviews < 20;
   };
 
-  MC.canChallengeToday = function() {
-    return MC.getDailyLimits().challenges < 10;
-  };
-
   MC.recordSubmit = function() {
     var limits = MC.getDailyLimits();
     limits.submits++;
@@ -202,12 +225,6 @@
   MC.recordReview = function() {
     var limits = MC.getDailyLimits();
     limits.reviews++;
-    _write(K.DAILY_LIMITS, limits);
-  };
-
-  MC.recordChallenge = function() {
-    var limits = MC.getDailyLimits();
-    limits.challenges++;
     _write(K.DAILY_LIMITS, limits);
   };
 

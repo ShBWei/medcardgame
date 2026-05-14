@@ -9,7 +9,7 @@
   MediCard.RoomManager = {
     roomCode: null,
     players: [],
-    maxPlayers: 2,
+    maxPlayers: 5,
     isHost: false,
 
     generateRoomCode() {
@@ -45,6 +45,20 @@
       return true;
     },
 
+    addAIPlayer(name, difficulty) {
+      if (this.players.length >= this.maxPlayers) return false;
+      this.players.push({
+        id: 'ai_' + this.players.length,
+        name: name || ('AI-' + ({ easy: '简单', normal: '普通', hard: '困难' }[difficulty] || '普通')),
+        peerId: null,
+        ready: true,
+        isHost: false,
+        isAI: true,
+        aiDifficulty: difficulty || 'normal'
+      });
+      return true;
+    },
+
     removePlayer(peerId) {
       this.players = this.players.filter(function(p) { return p.peerId !== peerId; });
     },
@@ -64,18 +78,6 @@
 
     getPlayerCount() {
       return this.players.length;
-    },
-
-    // Get identity distribution for current player count
-    getIdentityDistribution() {
-      var count = this.players.length;
-      switch (count) {
-        case 2: return ['lord', 'rebel'];
-        case 3: return ['lord', 'loyalist', 'spy'];
-        case 4: return ['lord', 'loyalist', 'rebel', 'rebel'];
-        case 5: return ['lord', 'loyalist', 'rebel', 'rebel', 'spy'];
-        default: return [];
-      }
     },
 
     reset() {

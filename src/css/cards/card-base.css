@@ -230,7 +230,7 @@
     top: 6px; left: 6px;
   }
   .card-name { font-size: 11px; }
-  .card-effect { font-size: 8px; display: none; }
+  .card-effect { font-size: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .card-art { font-size: 34px; }
   .card-front { padding: 6px; }
 }
