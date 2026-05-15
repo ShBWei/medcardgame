@@ -238,8 +238,9 @@
         return;
       }
 
-      // Subject not loaded yet — show loading and wait
+      // Subject not loaded yet — kick off fetch FIRST, THEN register callback
       this._showLoading();
+      MediCard.QuestionLoader.loadSubject(subjectId);
       MediCard.QuestionLoader.onReady(function() {
         var qs = MediCard.QuestionLoader.getSubject(subjectId);
         if (qs && qs.length > 0) {
@@ -247,7 +248,7 @@
           self._questionIndex = self._getSavedIndex(subjectId);
           self._renderQuestion();
         } else {
-          // Still not available — show error
+          // Still not available after load attempt — show error
           document.getElementById('study-main-area').innerHTML = '' +
             '<div class="study-empty">' +
               '<div class="study-empty-icon">⚠️</div>' +
@@ -258,8 +259,6 @@
           if (backBtn) backBtn.addEventListener('click', function() { self.goBack(); });
         }
       });
-      // Also trigger loading just in case
-      MediCard.QuestionLoader.loadSubject(subjectId);
     },
 
     /** Go back to subject list */

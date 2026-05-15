@@ -41,8 +41,15 @@
       for (var i = 0; i < cbs.length; i++) cbs[i]();
     },
 
-    /** Register a callback for when all selected subjects are loaded */
+    /** Register a callback for when subjects are ready.
+     *  If _selectedSubjects is set (via init()), waits for all selected.
+     *  Otherwise waits for any in-flight _fetchSubject loads to complete. */
     onReady: function(cb) {
+      // If loads are in flight, always queue — the load-complete path fires them
+      if (Object.keys(this._loadingSubjects).length > 0) {
+        this._loadCallbacks.push(cb);
+        return;
+      }
       if (this._allSelectedLoaded()) { cb(); return; }
       this._loadCallbacks.push(cb);
     },
@@ -152,11 +159,15 @@
           // Persist to localStorage so next visit skips network
           self._persistToCache(subjectId);
         }
-        // Fire queued callbacks
+        // Fire per-subject callbacks
         var cbs = self._loadingSubjects[subjectId] || [];
         delete self._loadingSubjects[subjectId];
         for (var i = 0; i < cbs.length; i++) {
           if (cbs[i]) cbs[i]();
+        }
+        // Also fire global onReady callbacks if all pending loads are done
+        if (Object.keys(self._loadingSubjects).length === 0 && self._loadCallbacks.length > 0) {
+          self._notifyReady();
         }
       };
       script.onerror = function() {
