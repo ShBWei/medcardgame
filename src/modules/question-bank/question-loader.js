@@ -174,6 +174,13 @@
         this._loadedSubjects.add(subjectId);
         return bank[subjectId];
       }
+      // Trigger async fetch: kick off script-injection load if not already in flight.
+      // loadSubject() returns synchronously (empty array for not-yet-loaded subjects),
+      // but the fetch runs in background. Callers that need the data should poll via
+      // getSubject() or use onReady() with a _fetchSubject callback.
+      if (!this._loadedSubjects.has(subjectId) && !this._loadingSubjects[subjectId]) {
+        this._fetchSubject(subjectId);
+      }
       return [];
     },
 
