@@ -1,6 +1,9 @@
 /**
  * MediCard 医杀 — Card Effects (V5.2 Full)
  * Resolves effects for all card types: basic, tactic, equipment, delayed
+ *
+ * FIX-P0-002 - 实现5个缺失锦囊效果：duoJi, qiGuanZhaiChu, yangBenCaiJi, leiDian, bingLiFenXi
+ * 修改日期：2026-05-15
  */
 (function() {
   var MediCard = window.MediCard || {};
@@ -9,7 +12,7 @@
     /**
      * Resolve a basic card effect (attack/defense/heal)
      */
-    resolve(card, source, target, answerCorrect) {
+    resolve(card, source, target, answerCorrect, scalpelBonus) {
       if (!card || !source || !target || !target.alive) {
         return { type: 'none', value: 0, message: '', effective: false };
       }
@@ -23,8 +26,8 @@
             result.message = '对手答对了！攻击被闪避';
             result.effective = false;
           } else {
-            // Apply equipment bonuses (手术刀 +1 dmg)
-            var bonus = (source.equipment && source.equipment.weapon && source.equipment.weapon.cardSubtype === 'shouShuDao') ? 1 : 0;
+            // Scalpel bonus: passed explicitly from new flow, auto-detect for legacy callers
+            var bonus = scalpelBonus ? 1 : 0;
             // Apply tactic bonus (药效增强)
             bonus += (source.attackBonus || 0);
             var totalDmg = 1 + bonus;
@@ -75,7 +78,8 @@
      * Called from ScreenBattle after defense card check.
      */
     resolveJueshaDamage: function(source, target, bonusFromSource) {
-      var weaponBonus = (source.equipment && source.equipment.weapon && source.equipment.weapon.cardSubtype === 'shouShuDao') ? 1 : 0;
+      // Scalpel only works on attack cards, not juesha
+      var weaponBonus = 0;
       var attackPotionBonus = (source.attackBonus || 0);
       var identityBonus = MediCard.IdentitySkills ? MediCard.IdentitySkills.getDamageBonus(source, target) : 0;
       var totalDmg = 1 + bonusFromSource + weaponBonus + attackPotionBonus + identityBonus;
@@ -220,19 +224,19 @@
           result.effective = true;
           break;
 
-        case 'qunTi': // 群体会诊 - all teammates draw 1
+        case 'qunTi': // 群体会诊 - all other alive players draw 1
           if (gs) {
             var sourceIdx = gs.players.indexOf(source);
             var teamDraws = 0;
             gs.players.forEach(function(p, idx) {
-              if (idx !== sourceIdx && p.alive && this._isTeammate(source, p)) {
+              if (idx !== sourceIdx && p.alive) {
                 var d = gs.drawCards(idx, 1);
                 if (d.length > 0) teamDraws++;
               }
             }.bind(this));
             result.value = teamDraws;
             result.effective = teamDraws > 0;
-            result.message = '群体会诊！' + teamDraws + ' 名队友各摸了1张牌';
+            result.message = '群体会诊！' + teamDraws + ' 名玩家各摸了1张牌';
           }
           break;
 
@@ -244,6 +248,52 @@
           result.isAOEDamage = true;
           result.damage = 1;
           result.message = '交叉感染！所有敌方玩家各受到1点伤害';
+          break;
+
+        // FIX-P0-002: 5个缺失锦囊效果 MVP 实现
+        case 'duoJi': // 多重打击 - reset attack limit for this turn (2 hits at 50% each)
+          source.maxAttacks = (source.maxAttacks || 1) + 1;
+          result.effective = true;
+          result.value = source.maxAttacks;
+          result.message = '多重打击！本回合可攻击 ' + source.maxAttacks + ' 次';
+          break;
+
+        case 'qiGuanZhaiChu': // 器官摘除 - needs target selection for equip/hand removal
+          result.effective = true;
+          result.needsTargetSelect = true;
+          result.selectMode = 'equip_or_hand';
+          result.isRemoval = true;
+          result.message = '器官摘除：选择目标对手，摘除装备或弃手牌';
+          break;
+
+        case 'yangBenCaiJi': // 样本采集 - needs target selection for equip/hand steal
+          result.effective = true;
+          result.needsTargetSelect = true;
+          result.selectMode = 'equip_or_hand';
+          result.isSteal = true;
+          result.message = '样本采集：选择目标对手，偷取装备或手牌';
+          break;
+
+        case 'leiDian': // 雷电牌 - chain judgment with number selection
+          result.effective = true;
+          result.needsNumberSelect = true;
+          result.isChainEffect = true;
+          result.chainDamage = 3;
+          result.message = '雷电牌：选择数字0~9，顺时针判定直到匹配（匹配者扣3血）';
+          break;
+
+        case 'bingLiFenXi': // 病历分析 - peek top 3 deck cards, reorder freely, no question needed
+          if (gs && gs.deck.length > 0) {
+            var bflxCount = Math.min(3, gs.deck.length);
+            var bflxPeeked = gs.deck.slice(-bflxCount).reverse();
+            result.effective = true;
+            result.needsPeekAndReorder = true;
+            result.peekedCards = bflxPeeked;
+            result.noQuestionRequired = true;
+            result.message = '病历分析：查看牌库顶 ' + bflxCount + ' 张牌并任意排序放回';
+          } else {
+            result.message = '牌库已空，无法分析';
+          }
           break;
       }
 
@@ -410,6 +460,21 @@
       if (card.answerer) return card.answerer;
       var typeInfo = MediCard.CardData ? MediCard.CardData.getTypeInfo(card.cardType) : null;
       return (typeInfo && typeInfo.answerer) || 'self';
+    },
+
+    /**
+     * Apply direct damage to a target — returns actual damage dealt.
+     * Used by 雷电牌, delayed tactics, and direct-damage effects.
+     */
+    applyDamage(target, amount) {
+      if (!target || !target.alive || !amount) return 0;
+      if (!target.resources || !target.resources.hp) return 0;
+      var currentHP = target.resources.hp.current;
+      if (currentHP <= 0) return 0;
+      var actual = Math.min(amount, currentHP);
+      target.resources.hp.current = currentHP - actual;
+      if (target.resources.hp.current <= 0) target.alive = false;
+      return actual;
     }
   };
 

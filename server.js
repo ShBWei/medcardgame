@@ -5,8 +5,11 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const net = require('net');
 const zlib = require('zlib');
+const crypto = require('crypto');
 const { PeerServer } = require('peer');
+const { WebSocketServer } = require('ws');
 
 const PORT = process.env.PORT || 8080;
 const PEER_PORT = process.env.PEER_PORT || 9000;
@@ -290,20 +293,26 @@ function handleApiRoute(req, res, ip) {
       try {
         const data = JSON.parse(body);
         if (!data || typeof data !== 'object') throw new Error('Invalid JSON');
-        // data = { userId, username, passwordHash, avatarColor, avatarIcon, createdAt, gameStats, wrongQuestions }
+        // data = { userId, username, passwordHash, avatarColor, avatarIcon, createdAt, gameStats, wrongQuestions, studyProgress }
         const userId = String(data.userId || '').substring(0, 64);
         if (!userId) throw new Error('Missing userId');
+        // Merge with existing account data (preserve fields not sent)
+        const existing = globalAccounts[userId] || {};
+        const mergedStudyProgress = data.studyProgress
+          ? { ...(existing.studyProgress || {}), ...data.studyProgress }
+          : (existing.studyProgress || {});
         // Sanitize and store
         globalAccounts[userId] = {
           userId: userId,
-          username: String(data.username || '').substring(0, 16),
-          passwordHash: String(data.passwordHash || '').substring(0, 128),
-          avatarColor: String(data.avatarColor || '#06b6d4').substring(0, 20),
-          avatarIcon: String(data.avatarIcon || '👨‍⚕️').substring(0, 8),
-          createdAt: data.createdAt || new Date().toISOString(),
+          username: String(data.username || existing.username || '').substring(0, 16),
+          passwordHash: String(data.passwordHash || existing.passwordHash || '').substring(0, 128),
+          avatarColor: String(data.avatarColor || existing.avatarColor || '#06b6d4').substring(0, 20),
+          avatarIcon: String(data.avatarIcon || existing.avatarIcon || '👨‍⚕️').substring(0, 8),
+          createdAt: data.createdAt || existing.createdAt || new Date().toISOString(),
           lastSync: new Date().toISOString(),
-          gameStats: Array.isArray(data.gameStats) ? data.gameStats.slice(-50) : [],
-          wrongQuestions: Array.isArray(data.wrongQuestions) ? data.wrongQuestions.slice(-200) : []
+          gameStats: Array.isArray(data.gameStats) ? data.gameStats.slice(-50) : (existing.gameStats || []),
+          wrongQuestions: Array.isArray(data.wrongQuestions) ? data.wrongQuestions.slice(-200) : (existing.wrongQuestions || []),
+          studyProgress: mergedStudyProgress
         };
         saveJSON(ACCOUNTS_FILE, globalAccounts);
         audit('INFO', ip, `Account sync: ${userId}`);
@@ -359,6 +368,46 @@ function handleApiRoute(req, res, ip) {
     }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, account: found }));
+    return;
+  }
+
+  // GET /api/study-progress?userId=xxx — retrieve study progress
+  if (req.method === 'GET' && url === '/api/study-progress') {
+    const userId = String(qs.get('userId') || '').substring(0, 64);
+    if (!userId) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'Missing userId' }));
+      return;
+    }
+    const account = globalAccounts[userId];
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, studyProgress: account ? (account.studyProgress || {}) : {} }));
+    return;
+  }
+
+  // POST /api/study-progress — save study progress
+  if (req.method === 'POST' && url === '/api/study-progress') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; if (body.length > 65536) req.destroy(); });
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body);
+        if (!data || typeof data !== 'object') throw new Error('Invalid JSON');
+        const userId = String(data.userId || '').substring(0, 64);
+        if (!userId) throw new Error('Missing userId');
+        const existing = globalAccounts[userId] || {};
+        existing.studyProgress = data.studyProgress || {};
+        if (!existing.userId) existing.userId = userId;
+        existing.lastSync = new Date().toISOString();
+        globalAccounts[userId] = existing;
+        saveJSON(ACCOUNTS_FILE, globalAccounts);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'Bad request' }));
+      }
+    });
     return;
   }
 
@@ -473,7 +522,9 @@ const staticServer = http.createServer((req, res) => {
       "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com 'unsafe-inline'; " +
       "style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; " +
       "connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self';";
-    headers['Cache-Control'] = 'no-cache, must-revalidate';
+    headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+    headers['Pragma'] = 'no-cache';
+    headers['Expires'] = '0';
   } else if (ext === '.js' || ext === '.css') {
     // Subject files are large (3.2MB total), rarely change — cache 24h
     if (url.startsWith('/src/modules/question-bank/subjects/')) {
@@ -501,21 +552,173 @@ const staticServer = http.createServer((req, res) => {
   }
 });
 
-staticServer.listen(PORT, () => {
-  console.log(`MediCard → http://0.0.0.0:${PORT}`);
-});
-
-// ── PeerJS hardened signaling ──────────────────────────────────
+// ── PeerJS signaling server (internal, port 9000) ────────────────────
 const peerServer = PeerServer({
   port: PEER_PORT,
+  host: '127.0.0.1',  // Only listen locally — HTTP server proxies externally
   path: '/medicard',
   allow_discovery: true,
-  proxied: false,
-  // Rate limit signaling messages
+  proxied: true,
   concurrent_limit: 10,
   timeout: 5000,
-  alive_timeout: 60000,
-  key: 'medicard',
+  alive_timeout: 120000,
+  key: 'medicard'
+});
+
+// ── WebSocket relay server (TCP fallback when P2P/WebRTC blocked) ──
+const relayRooms = new Map();  // roomCode → { connections: Map<clientId, ws>, hostId: string }
+
+function relayBroadcast(roomCode, senderId, data) {
+  const room = relayRooms.get(roomCode);
+  if (!room) return;
+  room.connections.forEach((ws, cid) => {
+    if (cid !== senderId && ws.readyState === 1) {
+      try { ws.send(JSON.stringify(data)); } catch(e) {}
+    }
+  });
+}
+
+function relaySend(roomCode, targetId, data) {
+  const room = relayRooms.get(roomCode);
+  if (!room) return;
+  const ws = room.connections.get(targetId);
+  if (ws && ws.readyState === 1) {
+    try { ws.send(JSON.stringify(data)); } catch(e) {}
+  }
+}
+
+function relayCleanupRoom(roomCode) {
+  const room = relayRooms.get(roomCode);
+  if (!room) return;
+  let empty = true;
+  room.connections.forEach((ws) => { if (ws.readyState === 1) empty = false; });
+  if (empty) {
+    relayRooms.delete(roomCode);
+    audit('INFO', 'relay', `Room ${roomCode} cleaned up (empty)`);
+  }
+}
+
+const wss = new WebSocketServer({ noServer: true });
+
+wss.on('connection', function(ws) {
+  let clientRoom = null;
+  let clientId = null;
+  const ip = ws._socket ? (ws._socket.remoteAddress || 'unknown') : 'unknown';
+
+  ws.on('message', function(raw) {
+    let msg;
+    try { msg = JSON.parse(raw.toString()); } catch(e) { return; }
+    if (!msg || !msg.type) return;
+
+    switch (msg.type) {
+      case 'relay_join':
+        clientId = String(msg.clientId || '').substring(0, 64);
+        clientRoom = String(msg.room || '').substring(0, 32).toUpperCase();
+        if (!clientId || !clientRoom) {
+          ws.send(JSON.stringify({ type: 'relay_error', error: 'Missing clientId or room' }));
+          return;
+        }
+        // Create or join room
+        let room = relayRooms.get(clientRoom);
+        if (!room) {
+          room = { connections: new Map(), hostId: clientId };
+          relayRooms.set(clientRoom, room);
+        }
+        room.connections.set(clientId, ws);
+        // Notify joiner of current peers
+        const peerList = [];
+        room.connections.forEach((_, cid) => { if (cid !== clientId) peerList.push(cid); });
+        ws.send(JSON.stringify({ type: 'relay_joined', room: clientRoom, clients: peerList, hostId: room.hostId }));
+        // Notify others
+        relayBroadcast(clientRoom, clientId, { type: 'relay_client_joined', clientId: clientId });
+        audit('INFO', ip, `Relay join: ${clientId} → room ${clientRoom} (${room.connections.size} peers)`);
+        break;
+
+      case 'relay_data':
+        if (!msg.room || !msg.payload) return;
+        if (msg.target === 'broadcast' || !msg.target) {
+          relayBroadcast(msg.room, clientId, { type: 'relay_data', from: clientId, payload: msg.payload });
+        } else {
+          relaySend(msg.room, msg.target, { type: 'relay_data', from: clientId, payload: msg.payload });
+        }
+        break;
+
+      case 'relay_leave':
+        if (clientRoom && clientId) {
+          const r = relayRooms.get(clientRoom);
+          if (r) {
+            r.connections.delete(clientId);
+            relayBroadcast(clientRoom, clientId, { type: 'relay_client_left', clientId: clientId });
+            audit('INFO', ip, `Relay leave: ${clientId} ← room ${clientRoom}`);
+          }
+          relayCleanupRoom(clientRoom);
+        }
+        clientRoom = null;
+        clientId = null;
+        break;
+    }
+  });
+
+  ws.on('close', function() {
+    if (clientRoom && clientId) {
+      const r = relayRooms.get(clientRoom);
+      if (r) {
+        r.connections.delete(clientId);
+        relayBroadcast(clientRoom, clientId, { type: 'relay_client_left', clientId: clientId });
+        audit('INFO', ip, `Relay disconnect: ${clientId} ← room ${clientRoom}`);
+      }
+      relayCleanupRoom(clientRoom);
+    }
+  });
+
+  ws.on('error', function(e) {
+    console.error('[RELAY] WebSocket error:', e.message);
+  });
+});
+
+// Periodic cleanup of stale rooms
+setInterval(() => {
+  for (const [code, room] of relayRooms) {
+    let alive = 0;
+    room.connections.forEach((ws) => { if (ws.readyState === 1) alive++; });
+    if (alive === 0) relayRooms.delete(code);
+  }
+}, 120_000);
+
+// ── WebSocket upgrade routing: /medicard (PeerJS) + /relay (TCP fallback) ──
+staticServer.on('upgrade', function(req, socket, head) {
+  if (req.url.startsWith('/relay')) {
+    wss.handleUpgrade(req, socket, head, function(ws) {
+      wss.emit('connection', ws, req);
+    });
+    return;
+  }
+  if (req.url.startsWith('/medicard')) {
+    // Proxy WebSocket upgrade to internal PeerServer
+    var proxy = net.connect(PEER_PORT, '127.0.0.1', function() {
+      var headers = [];
+      headers.push(req.method + ' ' + req.url + ' HTTP/' + req.httpVersion);
+      for (var i = 0; i < (req.rawHeaders || []).length; i += 2) {
+        headers.push(req.rawHeaders[i] + ': ' + req.rawHeaders[i + 1]);
+      }
+      headers.push('\r\n');
+      proxy.write(headers.join('\r\n'));
+      proxy.write(head);
+      proxy.pipe(socket);
+      socket.pipe(proxy);
+    });
+    proxy.on('error', function(e) {
+      console.error('[WS-PROXY] PeerJS proxy error:', e.message);
+      socket.destroy();
+    });
+    socket.on('error', function() { proxy.destroy(); });
+    return;
+  }
+  socket.destroy();
+});
+
+staticServer.listen(PORT, () => {
+  console.log(`MediCard → http://0.0.0.0:${PORT}  (PeerJS internal :${PEER_PORT}, proxy via /medicard)`);
 });
 
 peerServer.on('connection', (client) => {
@@ -540,13 +743,11 @@ peerServer.on('disconnect', (client) => {
 let signalMsgCount = 0;
 peerServer.on('message', (client, data) => {
   signalMsgCount++;
-  // Validate message size
   if (data && JSON.stringify(data).length > 8192) {
     audit('WARN', client.getId(), `Oversized signal message (${JSON.stringify(data).length} bytes)`);
     return;
   }
 });
-// Periodic signal stats
 setInterval(() => {
   if (signalMsgCount > 0) {
     console.log(`[BATTLE_LOG]${JSON.stringify({ ts: new Date().toISOString(), event: 'signal_stats', messages: signalMsgCount })}`);
@@ -554,7 +755,7 @@ setInterval(() => {
   }
 }, 60000);
 
-console.log(`PeerJS signaling → ws://0.0.0.0:${PEER_PORT}/medicard`);
+console.log(`PeerJS signaling → ws://0.0.0.0:${PORT}/medicard (proxied to :${PEER_PORT})`);
 console.log('Server ready — security mode: hardened');
 
 // ── Graceful shutdown — persist data ──────────────────────────

@@ -2,6 +2,12 @@
  * MediCard 医杀 — Battle Screen (V5.2 Enhanced)
  * Full 120-card deck: basic, tactic, equipment, delayed
  * Equipment display, delayed judgment, stat tracking
+ *
+ * FIX-P0-001 - 多人消息路由白名单：添加 N-003 whitelist，拒绝未知消息类型
+ * FIX-P1-001 - 回合超时兜底：集成 startTurnTimer/stopTurnTimer
+ * FIX-P1-002 - 客户端答案验证：DEFEND_ANSWER 发送 choice，主机验证 correctAnswers
+ * FIX-P1-003 - _attackInProgress 竞态清理：添加 _clearAllTimers 和断线清理
+ * 修改日期：2026-05-15
  */
 (function() {
   var MediCard = window.MediCard || {};
@@ -39,6 +45,11 @@
     _skipSyncBroadcast: false,
     _lastSentAction: 0,           // rate-limit: timestamp of last action sent
     _lastProcessedMsgId: null,    // dedup: last processed message ID (playerIdx:cardIndex)
+    _aiPlayCallback: null,        // AI callback: fires after attack resolution to chain next card
+    _medicalDictUsedThisTurn: false, // 医学辞典 — once per turn peek top 5, draw 1
+    _scalpelBonus: false,          // 手术刀 bonus active for current attack
+    _scalpelResolved: false,       // guard to prevent re-intercept after scalpel prompt
+    _activeTimers: [],             // FIX-P1-003: track all timers for bulk cleanup
 
     /* ============ Multiplayer Helpers ============ */
 
@@ -190,6 +201,8 @@
       this._jueshaPlayedThisTurn = false;
       this._duelInProgress = null;
       this._juedouDefending = null;
+      this._scalpelBonus = false;
+      this._scalpelResolved = false;
       this._debugLog = [];
       this._attackTargetIndex = -1;
       this._pendingAttackCardIndex = -1;
@@ -237,6 +250,8 @@
       this._aiContinuePlay = null;
       this._duelInProgress = null;
       this._juedouDefending = null;
+      this._scalpelBonus = false;
+      this._scalpelResolved = false;
       this._turnActive = true;
       this._isDiscardPhase = false;
       this._playedCardsThisTurn = [];
@@ -278,12 +293,41 @@
         // Host: remove lobby-phase handlers, install battle-phase handlers
         var conns = MediCard.NetworkHost._connections;
         for (var ci = 0; ci < conns.length; ci++) {
+          // Map connection index to player index, skipping AI players (must be outside IIFE)
+          var _playerIdx = -1;
+          var _nonAiCnt = 0;
+          for (var _pi2 = 1; _pi2 < gs.players.length; _pi2++) {
+            if (!gs.players[_pi2].isAI) {
+              if (_nonAiCnt === ci) { _playerIdx = _pi2; break; }
+              _nonAiCnt++;
+            }
+          }
+          if (_playerIdx < 0) continue; // safety: skip broken mapping
           (function(conn, clientIdx) {
             // [SYNC] Strip old lobby handlers to prevent triple-processing
             if (typeof conn.off === 'function') { conn.off('data'); }
             conn.on('data', function(raw) {
+              try {
               var msg = MediCard.SyncProtocol.unpack(raw);
               if (!msg) return;
+              // FIX-P0-001: N-003 message whitelist — reject unknown message types
+              var ALLOWED_TYPES = [
+                MediCard.SyncProtocol.MessageType.PLAY_CARD,
+                MediCard.SyncProtocol.MessageType.END_TURN,
+                MediCard.SyncProtocol.MessageType.ANSWER_QUESTION,
+                MediCard.SyncProtocol.MessageType.DEFEND_ANSWER,
+                MediCard.SyncProtocol.MessageType.SURRENDER,
+                MediCard.SyncProtocol.MessageType.TIME_EXTEND_VOTE,
+                MediCard.SyncProtocol.MessageType.DELTA_STATE
+              ];
+              if (ALLOWED_TYPES.indexOf(msg.t) === -1) {
+                if (MediCard.BattleLogger) {
+                  MediCard.BattleLogger.log('SECURITY', 'unknown_msg_type',
+                    'Host rejected unknown message type: ' + msg.t, { msgType: msg.t, fromClient: clientIdx });
+                }
+                console.warn('[Battle] Host rejected unknown message type: ' + msg.t + ' from client ' + clientIdx);
+                return;
+              }
               switch (msg.t) {
                 case MediCard.SyncProtocol.MessageType.PLAY_CARD:
                   self._onRemotePlayCard(clientIdx, msg.d);
@@ -295,13 +339,33 @@
                   self._onRemoteAnswer(clientIdx, msg.d);
                   break;
                 case MediCard.SyncProtocol.MessageType.DEFEND_ANSWER:
-                  if (msg.d && typeof msg.d.correct === 'boolean') {
-                    if (msg.d.isJuesha) {
-                      self._resolveMpJueshaAnswer(msg.d.correct);
-                    } else if (msg.d.isJuedou) {
-                      self._resolveMpJuedouAnswer(msg.d.correct);
+                  // FIX-P1-002: Host validates answer against card.correctAnswers — never trust client
+                  if (msg.d && msg.d.choice !== undefined) {
+                    var ctx = self._attackInProgress;
+                    var isValidated = false;
+                    if (ctx && ctx.card && ctx.card.correctAnswers) {
+                      var choices = msg.d.choice.split(',');
+                      var allCorrect = choices.every(function(c) {
+                        return ctx.card.correctAnswers.indexOf(c) >= 0;
+                      });
+                      var allRequired = ctx.card.correctAnswers.every(function(a) {
+                        return choices.indexOf(a) >= 0;
+                      });
+                      isValidated = allCorrect && allRequired;
                     } else {
-                      self._resolveDefendAnswer(msg.d.correct);
+                      // Fallback: card not in context (shouldn't happen), log anomaly
+                      if (MediCard.BattleLogger) {
+                        MediCard.BattleLogger.log('SECURITY', 'defend_answer_no_card',
+                          'No card in attack context for validation', { hasCtx: !!ctx, hasCard: !!(ctx && ctx.card) });
+                      }
+                      isValidated = false;
+                    }
+                    if (msg.d.isJuesha) {
+                      self._resolveMpJueshaAnswer(isValidated);
+                    } else if (msg.d.isJuedou) {
+                      self._resolveMpJuedouAnswer(isValidated);
+                    } else {
+                      self._resolveDefendAnswer(isValidated);
                     }
                   }
                   break;
@@ -320,18 +384,42 @@
                   }
                   break;
               }
+              } catch (e) {
+                console.error('[Battle] Host conn handler crashed:', e);
+                if (MediCard.BattleLogger) {
+                  MediCard.BattleLogger.log('CRASH', 'host_conn_handler', e.message || 'unknown');
+                }
+                try { self._updateDisplay(); } catch (e2) {}
+              }
             });
-          })(conns[ci], ci + 1);
+            // FIX-P1-003: Clean up all timers on client disconnect
+            conn.on('close', function() {
+              if (MediCard.BattleLogger) {
+                MediCard.BattleLogger.log('NETWORK', 'client_disconnected',
+                  'Client ' + clientIdx + ' disconnected, cleaning up timers');
+              }
+              self._clearAllTimers();
+            });
+          })(conns[ci], _playerIdx);
         }
 
         // Periodic connection health check — detect dropped clients
-        var dropCheckInterval = setInterval(function() {
+        var dropCheckInterval = this._trackTimer(setInterval(function() {
           if (!self._isHost || !MediCard.GameState.players) return;
           var conns = MediCard.NetworkHost && MediCard.NetworkHost._connections;
           if (!conns) return;
           var gs = MediCard.GameState;
           for (var ci = 0; ci < conns.length; ci++) {
-            var playerIdx = ci + 1; // host is always player 0
+            // Map connection index to player index, skipping AI players
+            var playerIdx = -1;
+            var _nonAiCnt3 = 0;
+            for (var _pi3 = 1; _pi3 < gs.players.length; _pi3++) {
+              if (!gs.players[_pi3].isAI) {
+                if (_nonAiCnt3 === ci) { playerIdx = _pi3; break; }
+                _nonAiCnt3++;
+              }
+            }
+            if (playerIdx < 0) continue; // safety: skip broken mapping
             if (!conns[ci].open && gs.players[playerIdx] && gs.players[playerIdx].alive) {
               gs.players[playerIdx].alive = false;
               if (MediCard.MultiplayerAdapter) MediCard.MultiplayerAdapter.anchorLog(
@@ -343,13 +431,14 @@
               self._checkGameEnd();
             }
           }
-        }, 5000);
+        }, 5000));
         this._dropCheckInterval = dropCheckInterval;
       } else {
         // Client: listen for sync from host
         var hc = MediCard.NetworkClient._hostConn;
         if (hc) {
           hc.on('data', function(raw) {
+            try {
             var msg = MediCard.SyncProtocol.unpack(raw);
             if (!msg) return;
             if (msg.t === MediCard.SyncProtocol.MessageType.DELTA_STATE) {
@@ -361,6 +450,13 @@
             } else if (msg.t === MediCard.SyncProtocol.MessageType.TIME_EXTEND_GRANTED) {
               self._onTimeExtendGranted(msg.d);
             }
+            } catch (e) {
+              console.error('[Battle] Client conn handler crashed:', e);
+              if (MediCard.BattleLogger) {
+                MediCard.BattleLogger.log('CRASH', 'client_conn_handler', e.message || 'unknown');
+              }
+              try { self._updateDisplay(); } catch (e2) {}
+            }
           });
         }
       }
@@ -368,17 +464,26 @@
 
     /** Send a sync event to all other players */
     _sendSync: function(data) {
-      // Rate-limit: prevent rapid-fire sends (<500ms between client actions)
-      if (!this._isHost && Date.now() - this._lastSentAction < 500) return;
+      // Rate-limit: prevent rapid-fire sends (<300ms between non-critical client actions)
+      if (!this._isHost && Date.now() - this._lastSentAction < 300) {
+        // Allow critical messages through even within rate-limit window
+        var isCritical = data.type === 'offensive_intent' || data.type === 'attack_cancel';
+        if (!isCritical) {
+          if (MediCard.BattleLogger) MediCard.BattleLogger.log('NETWORK', 'rate_limited',
+            'Dropped rapid-fire: ' + (data.type || 'unknown'));
+          return;
+        }
+      }
       this._lastSentAction = Date.now();
 
       if (MediCard.BattleLogger) MediCard.BattleLogger.log('NETWORK', 'send_sync', data.type || 'unknown', { isHost: this._isHost });
 
       if (this._isHost) {
         var conns = MediCard.NetworkHost._connections;
+        if (!conns || conns.length === 0) return;
         var pkt = MediCard.SyncProtocol.pack(MediCard.SyncProtocol.MessageType.DELTA_STATE, data);
         for (var i = 0; i < conns.length; i++) {
-          if (conns[i].open) conns[i].send(pkt);
+          if (conns[i] && conns[i].open) conns[i].send(pkt);
         }
       } else {
         MediCard.NetworkClient.send(MediCard.SyncProtocol.pack(
@@ -389,6 +494,7 @@
 
     /** Host: handle a play card action from a remote client */
     _onRemotePlayCard: function(playerIdx, data) {
+      try {
       // Dedup: skip duplicate messages (same player + card index)
       var msgId = playerIdx + ':' + (data.cardIndex != null ? data.cardIndex : '') + ':' + (data.type || '');
       if (msgId === this._lastProcessedMsgId) return;
@@ -407,7 +513,16 @@
         } else if (ct === 'juedou') {
           this._handleJuedouMpIntent(playerIdx, data.cardIndex, data.targetIdx);
         } else {
-          this._handleAttackIntent(playerIdx, data.cardIndex, data.targetIdx);
+          this._handleAttackIntent(playerIdx, data.cardIndex, data.targetIdx, data.scalpelBonus);
+        }
+        return;
+      }
+
+      // Client timed out waiting for defender — clean up host guard
+      if (data.type === 'attack_cancel') {
+        if (this._attackInProgress) {
+          MediCard.MPAttackResolver.clearHostGuard(this);
+          this._flashPhase('⏰ ' + (player.name || '玩家') + ' 攻击取消（超时）');
         }
         return;
       }
@@ -502,6 +617,17 @@
       this._updateDisplay();
       // Broadcast result to all clients
       this._sendSync({ type: 'action_result', sourceIdx: playerIdx, data: data });
+      } catch (e) {
+        console.error('[Battle] _onRemotePlayCard crashed:', e);
+        if (MediCard.BattleLogger) {
+          MediCard.BattleLogger.log('CRASH', 'on_remote_play_card', e.message,
+            { playerIdx: playerIdx, dataType: data && data.type });
+        }
+        if (this._attackInProgress) {
+          MediCard.MPAttackResolver.clearHostGuard(this);
+        }
+        this._updateDisplay();
+      }
     },
 
     /** Host: handle end turn from a remote client */
@@ -605,6 +731,7 @@
 
     /** Client: handle sync message from host */
     _onHostSync: function(data) {
+      try {
       var gs = MediCard.GameState;
       switch (data.type) {
         case 'action_result':
@@ -629,11 +756,12 @@
                 p.hand.splice(data.data.cardIndex, 1);
               }
             }
-            if (data.data.healAmount && p.alive) {
+            // Skip own non-offensive effects (already applied locally, avoid double-heal etc.)
+            if (data.data.healAmount && p.alive && !isOwnAction) {
               p.resources.hp.current = Math.min(p.resources.hp.max, p.resources.hp.current + data.data.healAmount);
             }
-            // Organ removal (器官摘除)
-            if (data.data.cardSubtype === 'qiGuanZhaiChu' && data.data.targetIdx != null) {
+            // Organ removal (器官摘除) — skip if own action (already applied locally)
+            if (data.data.cardSubtype === 'qiGuanZhaiChu' && data.data.targetIdx != null && !isOwnAction) {
               var qgt = gs.players[data.data.targetIdx];
               if (qgt && qgt.alive) {
                 if (data.data.qgMode === 'equipment' && data.data.qgEquipSlot && qgt.equipment) {
@@ -656,8 +784,8 @@
                 }
               }
             }
-            // Sample collection (样本采集)
-            if (data.data.cardSubtype === 'yangBenCaiJi' && data.data.targetIdx != null) {
+            // Sample collection (样本采集) — skip if own action (already applied locally)
+            if (data.data.cardSubtype === 'yangBenCaiJi' && data.data.targetIdx != null && !isOwnAction) {
               var ybs = gs.players[data.data.targetIdx];
               var yba = p; // the actor
               if (ybs && ybs.alive && yba && yba.alive) {
@@ -686,8 +814,8 @@
                 }
               }
             }
-            // Thunder point (雷电牌) chain judgment
-            if (data.data.cardSubtype === 'leiDian' && data.data.targetIdx != null && data.data.ldChosen !== undefined) {
+            // Thunder point (雷电牌) chain judgment — skip if own action (already applied locally)
+            if (data.data.cardSubtype === 'leiDian' && data.data.targetIdx != null && data.data.ldChosen !== undefined && !isOwnAction) {
               var ldt = gs.players[data.data.targetIdx];
               var ldSn = (p && p.name) || '对手';
               var ldTn = (ldt && ldt.name) || '玩家';
@@ -701,9 +829,9 @@
               if (ldt && !ldt.alive) this._checkGameEnd();
             }
           }
-          // Clear waiting state if this was our own attack + show result
+          // Clear waiting state if this was our own attack + show result (uses MPAttackResolver)
           if (this._attackInProgress && this._attackInProgress.type === 'waiting_defend') {
-            this._attackInProgress = null;
+            MediCard.MPAttackResolver.clearClientGuard(this);
             this._pendingCard = null;
             if (data.data && (data.data.cardType === 'attack' || data.data.cardType === 'juesha' || data.data.cardType === 'juedou')) {
               this._attacksThisTurn++;
@@ -720,6 +848,24 @@
             }
           }
           this._updateDisplay();
+
+          // Check game over on client (defense-in-depth: catches cases where host broadcast is lost)
+          if (!this._isHost && this._isMultiplayer) {
+            var goCheck = MediCard.Victory.check(gs.players);
+            if (goCheck) {
+              var goSelf = this;
+              setTimeout(function() { goSelf._endGame(goCheck); }, 500);
+            }
+          }
+          break;
+
+        case 'attack_cancel':
+          // Host timed out waiting for defender — clean up client-side guard
+          if (this._attackInProgress) {
+            MediCard.MPAttackResolver.clearClientGuard(this);
+            this._flashPhase('⏰ 攻击取消（超时）');
+            this._updateDisplay();
+          }
           break;
 
         case 'turn_change':
@@ -827,6 +973,17 @@
           }
           break;
       }
+      } catch (e) {
+        console.error('[Battle] _onHostSync crashed:', e);
+        if (MediCard.BattleLogger) {
+          MediCard.BattleLogger.log('CRASH', 'on_host_sync', e.message,
+            { dataType: data && data.type });
+        }
+        if (this._attackInProgress) {
+          MediCard.MPAttackResolver.clearClientGuard(this);
+        }
+        this._updateDisplay();
+      }
     },
 
     /* ============ Rendering ============ */
@@ -886,6 +1043,7 @@
           '<button class="btn btn-ghost btn-sm" id="btn-surrender" style="flex:1;">🏳️ 投降</button>' +
           '<button class="btn btn-ghost btn-sm" id="btn-discard-action" disabled style="flex:1;">🗑️ 弃牌</button>' +
           '<button class="btn btn-play-card btn-lg" id="btn-play-card" disabled style="flex:2;min-height:48px;font-size:16px;font-weight:700;">🃏 出牌</button>' +
+          '<button class="btn btn-ghost btn-sm" id="btn-medical-dict" style="flex:1;display:none;">📖 辞典</button>' +
           '<button class="btn btn-ghost btn-sm" id="btn-end-turn" style="flex:1;">⏭️ 结束</button>' +
         '</div>' +
         '<div class="played-cards-indicator" id="played-cards-indicator" style="display:none;"></div>' +
@@ -957,6 +1115,7 @@
           '<button class="btn btn-ghost btn-sm" id="btn-surrender" style="flex:1;">🏳️ 投降</button>' +
           '<button class="btn btn-ghost btn-sm" id="btn-discard-action" disabled style="flex:1;">🗑️ 弃牌</button>' +
           '<button class="btn btn-play-card btn-lg" id="btn-play-card" disabled style="flex:2;min-height:48px;font-size:16px;font-weight:700;">🃏 出牌</button>' +
+          '<button class="btn btn-ghost btn-sm" id="btn-medical-dict" style="flex:1;display:none;">📖 辞典</button>' +
           '<button class="btn btn-ghost btn-sm" id="btn-end-turn" style="flex:1;">⏭️ 结束</button>' +
         '</div>' +
         '<div class="played-cards-indicator" id="played-cards-indicator" style="display:none;"></div>' +
@@ -1293,6 +1452,15 @@
         return;
       }
 
+      // 应急预案 is passive — auto-consumes on damage, cannot be actively played
+      if (card.cardType === 'yingjiYuan') {
+        this._selectedCardIndex = -1;
+        this._renderHand();
+        this._updatePlayButton();
+        this._flashPhase('🆘 应急预案受到伤害时自动消耗，无法主动使用');
+        return;
+      }
+
       // Heal card: cannot play at full HP
       if (card.cardType === 'heal' && player.resources.hp.current >= player.resources.hp.max) {
         this._selectedCardIndex = -1;
@@ -1322,26 +1490,24 @@
         return;
       }
 
-      // Multiplayer attack/juesha/juedou: auto-target in 2-player, select target in 3+ player
+      // Multiplayer offensive card: delegate target selection to modular strategy
       var isOffensiveCard = (card.cardType === 'attack' || card.cardType === 'juesha' || card.cardType === 'juedou');
       if (isOffensiveCard && this._isMultiplayer) {
-        var alivePlayers = MediCard.GameState.players.filter(function(p) {
-          return p.alive && p !== player;
-        });
-        if (alivePlayers.length === 1) {
-          // 2-player game: auto-target the only opponent
-          this._pendingAttackCardIndex = cardIndex;
-          this._attackTargetIndex = MediCard.GameState.players.indexOf(alivePlayers[0]);
-          this._doPlayAttackOnTarget();
-        } else {
-          // 3+ players: show target selection
-          this._pendingAttackCardIndex = cardIndex;
-          this._selectedCardIndex = -1;
-          this._renderHand();
-          this._updatePlayButton();
-          document.getElementById('attack-target-prompt').style.display = 'block';
-          this._flashPhase('🎯 请选择目标（点击上方对手头像）');
-        }
+        this._pendingAttackCardIndex = cardIndex;
+        this._selectedCardIndex = -1;
+        this._renderHand();
+        this._updatePlayButton();
+        var self = this;
+        MediCard.TargetSelector.selectTarget(player, card,
+          function(target) {
+            self._attackTargetIndex = MediCard.GameState.players.indexOf(target);
+            self._doPlayAttackOnTarget();
+          },
+          function() {
+            self._pendingAttackCardIndex = -1;
+            self._updateDisplay();
+          }
+        );
         return;
       }
 
@@ -1372,6 +1538,11 @@
       }
 
       if (card.cardType === 'attack') {
+        if (this._hasScalpelAvailable() && !this._scalpelResolved) {
+          this._showScalpelPrompt(cardIndex, 'single');
+          return;
+        }
+        this._scalpelResolved = false;
         MediCard.Audio.playCardPlay(card.rarity);
         this._resolvePlayerAttack(card);
         return;
@@ -1677,34 +1848,42 @@
       var duel = this._duelInProgress;
       if (!duel) return;
 
-      var defender = duel.defender;
-      var attacker = duel.attacker;
+      var attacker = duel.attacker;  // Who initiated the duel (player)
+      var defender = duel.defender;  // Who was targeted (AI)
       var self = this;
-
-      // Increment iteration
       duel.iteration++;
 
-      // Check if defender has an attack-type card in hand (NOT 绝杀, NOT defense)
+      // Alternating: odd iterations = defender plays attack, attacker answers
+      //              even iterations = attacker plays attack, defender answers
+      var isOdd = duel.iteration % 2 === 1;
+      var cardPlayer = isOdd ? defender : attacker;
+      var answerer = isOdd ? attacker : defender;
+
+      // Check if cardPlayer has an attack card (NOT 绝杀)
       var atkIdx = -1;
-      for (var i = 0; i < defender.hand.length; i++) {
-        var c = defender.hand[i];
+      for (var i = 0; i < cardPlayer.hand.length; i++) {
+        var c = cardPlayer.hand[i];
         if (c.cardType === 'attack' && !c.isJuesha) {
-          atkIdx = i;
-          break;
+          atkIdx = i; break;
         }
       }
 
       if (atkIdx < 0) {
-        // No attack card → duel fail: 1 damage
-        this._flashPhase('⚔️ 决斗结束！' + (defender.name || '对手') + '无攻击牌可用，受到1点伤害');
-        var dmg = MediCard.Resources.dealDamage(defender, 1);
-        this._gameStats.damageDealt += dmg.actual;
+        // No attack card → cardPlayer takes 1 damage, duel ends
+        var whoLabel = (cardPlayer === this._aiPlayer) ? (cardPlayer.name || 'AI') : '你';
+        this._flashPhase('⚔️ 决斗结束！' + whoLabel + '无攻击牌可用，受到1点伤害');
+        var dmg = MediCard.Resources.dealDamage(cardPlayer, 1);
+        if (cardPlayer === this._aiPlayer) {
+          this._gameStats.damageDealt += dmg.actual;
+          MediCard.CardVisuals.showDamageNumber('opponent-zone', 100, 50, 1, 'damage');
+          MediCard.CardVisuals.spawnParticles('opponent-zone', 100, 50, '#f97316', 4);
+        } else {
+          this._gameStats.damageTaken += dmg.actual;
+          MediCard.CardVisuals.showDamageNumber('player-status', 100, 50, 1, 'damage');
+        }
         duel.totalDamage += dmg.actual;
-        MediCard.CardVisuals.showDamageNumber('opponent-zone', 100, 50, 1, 'damage');
-        MediCard.CardVisuals.spawnParticles('opponent-zone', 100, 50, '#f97316', 4);
-
-        if (!defender.alive) {
-          this._flashPhase('💀 ' + (defender.name || '对手') + '在决斗中倒下！');
+        if (!cardPlayer.alive) {
+          this._flashPhase('💀 ' + whoLabel + '在决斗中倒下！');
           this._duelInProgress = null;
           this._updateDisplay();
           setTimeout(function() { self._endGame(); }, 1500);
@@ -1715,40 +1894,69 @@
         return;
       }
 
-      // Defender plays an attack card (consumed, NOT 绝杀-procced)
-      var attackCard = defender.hand[atkIdx];
-      defender.hand.splice(atkIdx, 1);
+      // Consume attack card
+      var attackCard = cardPlayer.hand[atkIdx];
+      cardPlayer.hand.splice(atkIdx, 1);
       MediCard.GameState.discardPile.push(attackCard);
 
-      this._flashPhase('⚔️ 第' + duel.iteration + '回合 — ' + (defender.name || '对手') + '出' + (attackCard.cardName || '杀') + '并答题...');
+      this._flashPhase('⚔️ 第' + duel.iteration + '回合 — ' +
+        (cardPlayer === this._aiPlayer ? (cardPlayer.name || 'AI') : '你') + '出' +
+        (attackCard.cardName || '杀') + '，' +
+        (answerer === this._aiPlayer ? (answerer.name || 'AI') : '你') + '答题...');
 
-      // AI answers
-      var correctChance = { easy: 0.25, normal: 0.55, hard: 0.80 }[this._difficulty] || 0.55;
-      var aiCorrect = Math.random() < correctChance;
-
-      if (aiCorrect) {
-        this._flashPhase('🛡️ 答对了！继续出杀...');
-        this._updateDisplay();
-        // Continue duel loop
-        setTimeout(function() { self._duelIteration(); }, 800);
-      } else {
-        // Wrong → 1 damage, duel ends
-        this._flashPhase('❌ 答错了！决斗结束，受到1点伤害');
-        var dmg2 = MediCard.Resources.dealDamage(defender, 1);
-        this._gameStats.damageDealt += dmg2.actual;
-        duel.totalDamage += dmg2.actual;
-        MediCard.CardVisuals.showDamageNumber('opponent-zone', 100, 50, 1, 'damage');
-        MediCard.CardVisuals.spawnParticles('opponent-zone', 100, 50, '#f97316', 4);
-
-        if (!defender.alive) {
-          this._flashPhase('💀 ' + (defender.name || '对手') + '在决斗中倒下！');
+      if (answerer === this._aiPlayer) {
+        // AI answers the question
+        var correctChance = { easy: 0.25, normal: 0.55, hard: 0.80 }[this._difficulty] || 0.55;
+        var aiCorrect = Math.random() < correctChance;
+        this._trackAnswer({ correct: aiCorrect }, attackCard);
+        if (aiCorrect) {
+          this._flashPhase('🛡️ ' + (answerer.name || 'AI') + '答对了！反击！');
+          this._updateDisplay();
+          setTimeout(function() { self._duelIteration(); }, 800);
+        } else {
+          this._flashPhase('❌ ' + (answerer.name || 'AI') + '答错了！受到1点伤害');
+          var dmg2 = MediCard.Resources.dealDamage(answerer, 1);
+          this._gameStats.damageDealt += dmg2.actual;
+          duel.totalDamage += dmg2.actual;
+          MediCard.CardVisuals.showDamageNumber('opponent-zone', 100, 50, 1, 'damage');
+          MediCard.CardVisuals.spawnParticles('opponent-zone', 100, 50, '#f97316', 4);
+          if (!answerer.alive) {
+            this._flashPhase('💀 ' + (answerer.name || 'AI') + '在决斗中倒下！');
+            this._duelInProgress = null;
+            this._updateDisplay();
+            setTimeout(function() { self._endGame(); }, 1500);
+            return;
+          }
           this._duelInProgress = null;
           this._updateDisplay();
-          setTimeout(function() { self._endGame(); }, 1500);
-          return;
         }
-        this._duelInProgress = null;
+      } else {
+        // Player (answerer) answers the question
         this._updateDisplay();
+        MediCard.QuestionPopup.show(attackCard, function(result) {
+          self._trackAnswer(result, attackCard);
+          if (result.correct) {
+            self._flashPhase('🛡️ 答对了！反击！');
+            self._updateDisplay();
+            setTimeout(function() { self._duelIteration(); }, 800);
+          } else {
+            self._flashPhase('❌ 答错了！决斗失败，受到1点伤害');
+            var dmg3 = MediCard.Resources.dealDamage(answerer, 1);
+            self._gameStats.damageTaken += dmg3.actual;
+            duel.totalDamage += dmg3.actual;
+            MediCard.CardVisuals.showDamageNumber('player-status', 100, 50, 1, 'damage');
+            MediCard.CardVisuals.spawnParticles('player-status', 100, 50, '#f97316', 4);
+            if (!answerer.alive) {
+              self._flashPhase('💀 你在决斗中倒下！');
+              self._duelInProgress = null;
+              self._updateDisplay();
+              setTimeout(function() { self._endGame(); }, 1500);
+              return;
+            }
+            self._duelInProgress = null;
+            self._updateDisplay();
+          }
+        }, answerer.name || '你');
       }
     },
 
@@ -1767,32 +1975,45 @@
       var duel = this._juedouDefending;
       if (!duel) return;
 
-      var defender = duel.defender;
+      var attacker = duel.attacker;  // AI who initiated
+      var defender = duel.defender;  // Player who was targeted
       var self = this;
       duel.iteration++;
 
-      // Find a valid attack card in defender's hand (not 绝杀, not defense)
+      // Alternating: odd = defender (player) plays, attacker (AI) answers
+      //              even = attacker (AI) plays, defender (player) answers
+      var isOdd = duel.iteration % 2 === 1;
+      var cardPlayer = isOdd ? defender : attacker;
+      var answerer = isOdd ? attacker : defender;
+
+      // Find attack card in cardPlayer's hand (not 绝杀)
       var atkIdx = -1;
-      for (var i = 0; i < defender.hand.length; i++) {
-        var c = defender.hand[i];
+      for (var i = 0; i < cardPlayer.hand.length; i++) {
+        var c = cardPlayer.hand[i];
         if (c.cardType === 'attack' && !c.isJuesha) {
           atkIdx = i; break;
         }
       }
 
       if (atkIdx < 0) {
-        // No attack card — defender loses, takes 1 damage
-        this._flashPhase('⚔️ 无攻击牌可用！决斗失败，受到1点伤害');
-        var dmg = MediCard.Resources.dealDamage(defender, 1);
-        this._gameStats.damageTaken += dmg.actual;
-        MediCard.CardVisuals.showDamageNumber('player-status', 100, 50, 1, 'damage');
-        MediCard.CardVisuals.spawnParticles('player-status', 100, 50, '#f97316', 4);
+        // No attack card → cardPlayer loses, takes 1 damage
+        var cpLabel = cardPlayer === defender ? '你' : (cardPlayer.name || 'AI');
+        this._flashPhase('⚔️ ' + cpLabel + '无攻击牌可用！受到1点伤害');
+        var dmg = MediCard.Resources.dealDamage(cardPlayer, 1);
+        if (cardPlayer === defender) {
+          this._gameStats.damageTaken += dmg.actual;
+          MediCard.CardVisuals.showDamageNumber('player-status', 100, 50, 1, 'damage');
+        } else {
+          this._gameStats.damageDealt += dmg.actual;
+          MediCard.CardVisuals.showDamageNumber('opponent-zone', 100, 50, 1, 'damage');
+          MediCard.CardVisuals.spawnParticles('opponent-zone', 100, 50, '#f97316', 4);
+        }
         this._juedouDefending = null;
         this._updateDisplay();
         var cont = this._aiContinuePlay;
         this._aiContinuePlay = null;
-        if (!defender.alive) {
-          this._flashPhase('💀 你在决斗中倒下！');
+        if (!cardPlayer.alive) {
+          this._flashPhase('💀 ' + cpLabel + '在决斗中倒下！');
           setTimeout(function() { self._endGame(); }, 1500);
           return;
         }
@@ -1800,39 +2021,70 @@
         return;
       }
 
-      // Consume the attack card
-      var attackCard = defender.hand[atkIdx];
-      defender.hand.splice(atkIdx, 1);
+      // Consume attack card
+      var attackCard = cardPlayer.hand[atkIdx];
+      cardPlayer.hand.splice(atkIdx, 1);
       MediCard.GameState.discardPile.push(attackCard);
 
-      this._flashPhase('⚔️ 第' + duel.iteration + '回合 — 出' + (attackCard.cardName || '杀') + '答题');
-      this._updateDisplay();
+      this._flashPhase('⚔️ 第' + duel.iteration + '回合 — ' +
+        (cardPlayer === defender ? '你出' : (cardPlayer.name || 'AI') + '出') +
+        (attackCard.cardName || '杀') + '，' +
+        (answerer === defender ? '你' : (answerer.name || 'AI')) + '答题');
 
-      // Player answers the question on the attack card
-      MediCard.QuestionPopup.show(attackCard, function(result) {
-        self._trackAnswer(result, attackCard);
-        if (result.correct) {
-          self._flashPhase('🛡️ 答对了！继续出杀...');
-          self._updateDisplay();
+      if (answerer === attacker) {
+        // AI answers
+        var correctChance = { easy: 0.25, normal: 0.55, hard: 0.80 }[this._difficulty] || 0.55;
+        var aiCorrect = Math.random() < correctChance;
+        this._trackAnswer({ correct: aiCorrect }, attackCard);
+        if (aiCorrect) {
+          this._flashPhase('🛡️ ' + (answerer.name || 'AI') + '答对了！反击！');
+          this._updateDisplay();
           setTimeout(function() { self._executeJuedouDefendIteration(); }, 800);
         } else {
-          self._flashPhase('❌ 答错了！决斗失败，受到1点伤害');
-          var dmg2 = MediCard.Resources.dealDamage(defender, 1);
-          self._gameStats.damageTaken += dmg2.actual;
-          MediCard.CardVisuals.showDamageNumber('player-status', 100, 50, 1, 'damage');
-          MediCard.CardVisuals.spawnParticles('player-status', 100, 50, '#f97316', 4);
-          self._juedouDefending = null;
-          self._updateDisplay();
-          var cont2 = self._aiContinuePlay;
-          self._aiContinuePlay = null;
-          if (!defender.alive) {
-            self._flashPhase('💀 你在决斗中倒下！');
+          this._flashPhase('❌ ' + (answerer.name || 'AI') + '答错了！受到1点伤害');
+          var dmg2 = MediCard.Resources.dealDamage(answerer, 1);
+          this._gameStats.damageDealt += dmg2.actual;
+          MediCard.CardVisuals.showDamageNumber('opponent-zone', 100, 50, 1, 'damage');
+          MediCard.CardVisuals.spawnParticles('opponent-zone', 100, 50, '#f97316', 4);
+          this._juedouDefending = null;
+          this._updateDisplay();
+          var cont2 = this._aiContinuePlay;
+          this._aiContinuePlay = null;
+          if (!answerer.alive) {
+            this._flashPhase('💀 ' + (answerer.name || 'AI') + '在决斗中倒下！');
             setTimeout(function() { self._endGame(); }, 1500);
             return;
           }
           if (cont2) setTimeout(cont2, 700);
         }
-      }, '你');
+      } else {
+        // Player answers
+        this._updateDisplay();
+        MediCard.QuestionPopup.show(attackCard, function(result) {
+          self._trackAnswer(result, attackCard);
+          if (result.correct) {
+            self._flashPhase('🛡️ 答对了！反击！');
+            self._updateDisplay();
+            setTimeout(function() { self._executeJuedouDefendIteration(); }, 800);
+          } else {
+            self._flashPhase('❌ 答错了！决斗失败，受到1点伤害');
+            var dmg3 = MediCard.Resources.dealDamage(answerer, 1);
+            self._gameStats.damageTaken += dmg3.actual;
+            MediCard.CardVisuals.showDamageNumber('player-status', 100, 50, 1, 'damage');
+            MediCard.CardVisuals.spawnParticles('player-status', 100, 50, '#f97316', 4);
+            self._juedouDefending = null;
+            self._updateDisplay();
+            var cont3 = self._aiContinuePlay;
+            self._aiContinuePlay = null;
+            if (!answerer.alive) {
+              self._flashPhase('💀 你在决斗中倒下！');
+              setTimeout(function() { self._endGame(); }, 1500);
+              return;
+            }
+            if (cont3) setTimeout(cont3, 700);
+          }
+        }, '你');
+      }
     },
 
     // ── Existing AI attack logic ──
@@ -1869,7 +2121,10 @@
       var identityBonus = MediCard.IdentitySkills.getDamageBonus(player, ai);
       var attackPotionBonus = (player.attackBonus || 0);
 
-      var bonus = identityBonus + attackPotionBonus;
+      var scalpelBonus = this._scalpelBonus ? 1 : 0;
+      this._scalpelBonus = false;  // consume bonus
+
+      var bonus = identityBonus + attackPotionBonus + scalpelBonus;
       var totalDmg = baseDmg + bonus;
 
       // Armor reduction: 白大褂 -1 dmg
@@ -1889,6 +2144,7 @@
       parts.push('基础1');
       if (identityBonus) parts.push('身份加成+' + identityBonus);
       if (attackPotionBonus) parts.push('药效+' + attackPotionBonus);
+      if (scalpelBonus) parts.push('手术刀+1');
       if (armorReduction) parts.push('白大褂护甲-' + armorReduction);
       var formula = parts.join(' → ');
       var msg = '⚔️ 攻击命中！' + formula + ' = ' + dmg.actual + ' 点伤害';
@@ -2130,9 +2386,11 @@
           self._executeYangBenCaiJi(ybTarget);
           return; // async — handled in _executeYangBenCaiJi
 
-        case 'leiDian': // 雷电牌 — number picker then chain judgment
-          self._promptLeiDianNumber();
-          return; // async — chain starts after number picked
+        case 'leiDian': // 雷电牌 — placed as delayed judgment, triggers at turn start
+          if (!player.delayedTactics) player.delayedTactics = [];
+          player.delayedTactics.push(card);
+          self._flashPhase('⚡ 雷电牌已放置！将在下回合判定阶段触发');
+          break;
 
         case 'bingLiFenXi': // 病历分析 — peek top 3, reorder
           self._executeBingLiFenXi();
@@ -2577,6 +2835,12 @@
       this._pendingCard = null;
       this._selectedCardIndex = -1;
       this._updateDisplay();
+      // If triggered from judgment phase, continue
+      if (this._leiDianCallback) {
+        var cb = this._leiDianCallback;
+        this._leiDianCallback = null;
+        setTimeout(cb, 800);
+      }
     },
 
     /** Sync 雷电牌 result for multiplayer */
@@ -3196,6 +3460,8 @@
 
     _endTurn() {
       if (this._duelInProgress || this._juedouDefending) { this._flashPhase('⚔️ 决斗进行中，无法结束回合'); return; }
+      // FIX-P1-001: Stop turn timeout countdown
+      MediCard.TurnSystem.stopTurnTimer();
       if (MediCard.BattleLogger) MediCard.BattleLogger.log('USER_ACTION', 'end_turn', 'Player ended turn');
       var gs = MediCard.GameState;
       var victory = MediCard.Victory.check(gs.players);
@@ -3313,18 +3579,239 @@
         btn.style.cssText = 'flex:1;';
         btn.disabled = true;
         btn.style.opacity = '0.4';
-      } else if (exceeds) {
-        btn.textContent = '🗑️ 弃牌';
+      } else {
+        // Discard button always active during player's turn (can voluntarily discard)
+        btn.textContent = exceeds ? '⚠️ 弃牌（超限）' : '🗑️ 弃牌';
         btn.className = 'btn btn-ghost btn-sm';
         btn.style.cssText = 'flex:1;';
         btn.disabled = false;
         btn.style.opacity = '1';
+      }
+    },
+
+    /** Show/hide 医学辞典 button based on equipment and turn state */
+    _updateMedicalDictButton: function() {
+      var btn = document.getElementById('btn-medical-dict');
+      if (!btn) return;
+      var player = this._player;
+      var hasDict = player && player.equipment && player.equipment.tool &&
+                    player.equipment.tool.cardSubtype === 'yiXueCiDian';
+      var myIdx = this._isMultiplayer ? this._myPlayerIndex : 0;
+      var isMyTurn = MediCard.GameState.currentPlayerIndex === myIdx && this._turnActive && !this._attackInProgress && !this._isDiscardPhase;
+      var canUse = hasDict && isMyTurn && !this._medicalDictUsedThisTurn;
+
+      btn.style.display = canUse ? '' : 'none';
+      if (canUse) {
+        btn.disabled = false;
+        btn.style.opacity = '1';
+      }
+    },
+
+    /** Execute 医学辞典: peek top 5 deck cards, optionally draw 1 */
+    _executeMedicalDict: function() {
+      var self = this;
+      var gs = MediCard.GameState;
+      var peekCount = Math.min(5, gs.deck.length);
+      if (peekCount === 0) {
+        this._flashPhase('📖 牌库已空，辞典无效');
+        return;
+      }
+
+      this._medicalDictUsedThisTurn = true;
+      this._updateMedicalDictButton();
+
+      var peeked = gs.peekDeckTop(peekCount);
+      this._logAction('📖 医学辞典：查看牌库顶' + peeked.length + '张牌');
+
+      // Show peek overlay
+      var overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.style.zIndex = '2100';
+
+      var content = document.createElement('div');
+      content.className = 'modal-content';
+      content.style.cssText = 'max-width:520px;text-align:center;animation:modalEnter 250ms ease-out;padding:20px;';
+
+      var html = '<h3 style="margin-bottom:4px;">📖 医学辞典</h3>';
+      html += '<p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">牌库顶 ' + peeked.length + ' 张牌 — 点击选择1张加入手牌</p>';
+      html += '<div id="meddict-cards" style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:14px;">';
+
+      for (var i = 0; i < peeked.length; i++) {
+        var c = peeked[i];
+        var typeInfo = MediCard.CardData.getTypeInfo(c.cardType);
+        var icon = (typeInfo && typeInfo.icon) || '🃏';
+        var color = (typeInfo && typeInfo.color) || '#64748b';
+        var rarityColors = { common: '#94a3b8', rare: '#06b6d4', epic: '#a855f7', legendary: '#fbbf24' };
+        var rColor = rarityColors[c.rarity] || '#94a3b8';
+        html += '<div class="meddict-card glass-panel" data-idx="' + i + '" style="cursor:pointer;width:80px;padding:10px 8px;border-radius:10px;text-align:center;border:2px solid ' + rColor + ';transition:transform 150ms,box-shadow 150ms;">' +
+          '<div style="font-size:28px;">' + icon + '</div>' +
+          '<div style="font-size:10px;font-weight:700;color:' + color + ';margin-top:4px;line-height:1.1;">' + (c.cardName || c.cardType) + '</div>' +
+          '<div style="font-size:9px;color:var(--text-muted);margin-top:2px;">' + (typeInfo ? typeInfo.name : c.cardType) + '</div>' +
+          '</div>';
+      }
+
+      html += '</div>';
+      html += '<button class="btn btn-ghost btn-sm" id="meddict-skip" style="margin-right:8px;">跳过（不放回）</button>';
+      content.innerHTML = html;
+      overlay.appendChild(content);
+      document.body.appendChild(overlay);
+
+      // Hover effect and click handler for each card
+      var cardEls = content.querySelectorAll('.meddict-card');
+      for (var ci = 0; ci < cardEls.length; ci++) {
+        (function(cardEl, idx) {
+          cardEl.addEventListener('mouseenter', function() {
+            cardEl.style.transform = 'translateY(-4px)';
+            cardEl.style.boxShadow = '0 8px 20px rgba(0,0,0,0.3)';
+          });
+          cardEl.addEventListener('mouseleave', function() {
+            cardEl.style.transform = '';
+            cardEl.style.boxShadow = '';
+          });
+          cardEl.addEventListener('click', function() {
+            // Draw chosen card from deck (remove from peeked position)
+            var chosen = peeked[idx];
+            // Remove chosen card from deck (it's at position deck.length - 1 - idx from top = idx from bottom)
+            var deckIdx = gs.deck.length - 1 - idx;
+            gs.deck.splice(deckIdx, 1);
+            self._player.hand.push(chosen);
+            self._logAction('📖 医学辞典：选择了 ' + (chosen.cardName || '卡牌') + ' 加入手牌');
+            self._flashPhase('📖 辞典：获得 ' + (chosen.cardName || '1张牌'));
+            overlay.remove();
+            self._updateDisplay();
+          });
+        })(cardEls[ci], ci);
+      }
+
+      // Skip button
+      var btnSkip = content.querySelector('#meddict-skip');
+      if (btnSkip) {
+        btnSkip.addEventListener('click', function() {
+          self._flashPhase('📖 辞典：没有选择卡牌');
+          overlay.remove();
+          self._updateDisplay();
+        });
+      }
+
+      // Close on overlay click
+      overlay.addEventListener('click', function(e) {
+        if (e.target === overlay) {
+          overlay.remove();
+          self._updateDisplay();
+        }
+      });
+    },
+
+    _hasScalpelAvailable: function() {
+      var player = this._player;
+      if (!player || !player.equipment || !player.equipment.weapon) return false;
+      var wpn = player.equipment.weapon;
+      if (wpn.cardSubtype !== 'shouShuDao') return false;
+      if (wpn.scalpelUses === undefined) wpn.scalpelUses = 3;
+      return wpn.scalpelUses > 0;
+    },
+
+    _showScalpelPrompt: function(cardIndex, mode) {
+      var self = this;
+      var player = this._player;
+      var wpn = player.equipment.weapon;
+      var uses = wpn.scalpelUses || 0;
+
+      var overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.style.zIndex = '2050';
+
+      var content = document.createElement('div');
+      content.className = 'modal-content';
+      content.style.cssText = 'max-width:380px;text-align:center;animation:modalEnter 250ms ease-out;padding:24px;';
+
+      content.innerHTML =
+        '<div style="font-size:40px;margin-bottom:10px;">🔪</div>' +
+        '<h3 style="margin-bottom:6px;">手术刀</h3>' +
+        '<p style="font-size:13px;color:var(--text-muted);margin-bottom:4px;">使用后需答对一题，答对则本次攻击伤害<b style="color:#ef4444;">+1</b></p>' +
+        '<p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">剩余使用次数：<b style="color:#fbbf24;">' + uses + '</b> / 3</p>' +
+        '<div style="display:flex;gap:10px;justify-content:center;">' +
+          '<button class="btn btn-ghost btn-sm" id="scalpel-decline" style="flex:1;border-color:rgba(148,163,184,0.3);">➡️ 不用</button>' +
+          '<button class="btn btn-sm" id="scalpel-use" style="flex:1;background:rgba(239,68,68,0.15);border-color:#ef4444;color:#ef4444;">🔪 使用手术刀</button>' +
+        '</div>';
+
+      overlay.appendChild(content);
+      document.body.appendChild(overlay);
+
+      var close = function() {
+        if (overlay.parentNode) overlay.remove();
+      };
+
+      content.querySelector('#scalpel-decline').addEventListener('click', function() {
+        close();
+        self._continueAttackAfterScalpel(cardIndex, false, mode);
+      });
+
+      content.querySelector('#scalpel-use').addEventListener('click', function() {
+        close();
+        self._onScalpelUse(cardIndex, mode);
+      });
+
+      overlay.addEventListener('click', function(e) {
+        if (e.target === overlay) { close(); self._continueAttackAfterScalpel(cardIndex, false, mode); }
+      });
+    },
+
+    _onScalpelUse: function(cardIndex, mode) {
+      var self = this;
+      // Build a temporary card object with a random question for the scalpel answer
+      var scalpelCard = this._buildScalpelQuestionCard();
+      if (!scalpelCard) {
+        this._flashPhase('🔪 手术刀无法使用（题库为空）');
+        this._continueAttackAfterScalpel(cardIndex, false, mode);
+        return;
+      }
+
+      MediCard.QuestionPopup.show(scalpelCard, function(result) {
+        self._trackAnswer(result, scalpelCard);
+        var correct = result && result.correct;
+        if (correct) {
+          self._flashPhase('🔪 手术刀答题正确！本次攻击伤害+1');
+          self._logAction('手术刀答题正确，攻击伤害+1');
+        } else {
+          self._flashPhase('❌ 手术刀答题错误，无额外伤害');
+          self._logAction('手术刀答题错误');
+        }
+        // Decrement scalpel uses
+        var wpn = self._player.equipment.weapon;
+        if (wpn && wpn.cardSubtype === 'shouShuDao') {
+          wpn.scalpelUses = Math.max(0, (wpn.scalpelUses || 3) - 1);
+          if (wpn.scalpelUses <= 0) {
+            self._flashPhase('🔪 手术刀已用完，自动废弃');
+            self._player.equipment.weapon = null;
+          }
+        }
+        self._continueAttackAfterScalpel(cardIndex, correct, mode);
+      }, '你');
+    },
+
+    _buildScalpelQuestionCard: function() {
+      var gs = MediCard.GameState;
+      if (!gs || !gs._selectedSubjects || !gs._selectedSubjects.length) return null;
+      // Pick a random subject and get a random question from it
+      var subjId = gs._selectedSubjects[Math.floor(Math.random() * gs._selectedSubjects.length)];
+      var questions = MediCard.QuestionLoader.getSubject(subjId);
+      if (!questions || questions.length === 0) return null;
+      var q = questions[Math.floor(Math.random() * questions.length)];
+      if (!q) return null;
+      return MediCard.CardData.createCard(q, 'attack');
+    },
+
+    _continueAttackAfterScalpel: function(cardIndex, scalpelBonus, mode) {
+      this._scalpelBonus = !!scalpelBonus;
+      this._scalpelResolved = true;
+
+      if (mode === 'multiplayer') {
+        // Re-enter _doPlayAttackOnTarget
+        this._doPlayAttackOnTarget();
       } else {
-        btn.textContent = '🗑️ 弃牌';
-        btn.className = 'btn btn-ghost btn-sm';
-        btn.style.cssText = 'flex:1;';
-        btn.disabled = true;
-        btn.style.opacity = '0.4';
+        // Re-enter _tryPlayCard
+        this._tryPlayCard(cardIndex);
       }
     },
 
@@ -3473,6 +3960,20 @@
           return;
         }
         var card = dt.shift();
+
+        // Special: 雷电牌 triggers chain judgment for AI
+        if (card.cardSubtype === 'leiDian' || card.cardType === 'leiDian' ||
+            (card.cardName && card.cardName.indexOf('雷电') >= 0)) {
+          self._flashPhase('⚡ AI雷电牌判定！');
+          MediCard.GameState.discardPile.push(card);
+          var ldNum = Math.floor(Math.random() * 10);
+          self._logAction('AI雷电牌选定数字 [' + ldNum + ']');
+          // Store callback and start chain
+          self._leiDianCallback = processNext;
+          self._startLeiDianChain(ldNum);
+          return;
+        }
+
         // AI answers delayed tactic
         var correctChance = { easy: 0.25, normal: 0.55, hard: 0.80 }[self._difficulty] || 0.55;
         var answeredCorrectly = Math.random() < correctChance;
@@ -3614,9 +4115,13 @@
             var tacCorrect = Math.random() < correctChance;
             if (tacCorrect) {
               if (card.cardSubtype === 'leiDian') {
-                // 雷电牌 async chain — handles its own continuation
-                self._logAction('AI使用锦囊「雷电牌」');
-                self._startAILeiDianChain(card, ai, player, playNextAICard);
+                // 雷电牌 — place as delayed judgment, triggers at turn start
+                self._logAction('AI使用锦囊「雷电牌」——将在下回合判定阶段触发');
+                if (!ai.delayedTactics) ai.delayedTactics = [];
+                ai.delayedTactics.push(card);
+                document.getElementById('phase-indicator').textContent = 'AI使用了雷电牌！将在下回合触发';
+                self._updateDisplay();
+                setTimeout(playNextAICard, delay);
                 return;
               }
               self._logAction('AI使用锦囊「' + (card.cardName || '') + '」');
@@ -3832,14 +4337,9 @@
 
       if (!ai.alive) { this._continueNewTurn(); return; }
 
-      // Pick a random alive human target (prefer non-AI, alive players)
-      var humanTargets = gs.players.filter(function(p) { return p.alive && !p.isAI && p.id !== ai.id; });
-      if (humanTargets.length === 0) {
-        // Fallback: target any alive non-self player
-        humanTargets = gs.players.filter(function(p) { return p.alive && p.id !== ai.id; });
-      }
-      if (humanTargets.length === 0) { this._continueNewTurn(); return; }
-      var target = humanTargets[Math.floor(Math.random() * humanTargets.length)];
+      // Pick a random alive opponent (same pool as human targeting — any alive non-self)
+      var possibleTargets = gs.players.filter(function(p) { return p.alive && p.id !== ai.id; });
+      if (possibleTargets.length === 0) { this._continueNewTurn(); return; }
 
       var diff = ai.aiDifficulty || 'normal';
       var correctChance = { easy: 0.25, normal: 0.55, hard: 0.80 }[diff] || 0.55;
@@ -3884,7 +4384,7 @@
         self._logAction('🤖 ' + (ai.name || 'AI') + ' 正在思考策略...');
         self._updateDisplay();
 
-        setTimeout(function() { self._playMultiplayerAICards(ai, target, correctChance); }, 800);
+        setTimeout(function() { self._playMultiplayerAICards(ai, correctChance); }, 800);
       });
     },
 
@@ -3923,7 +4423,7 @@
     },
 
     /** Auto-play cards for multiplayer AI with sync after each action */
-    _playMultiplayerAICards: function(ai, target, correctChance) {
+    _playMultiplayerAICards: function(ai, correctChance) {
       var self = this;
       var gs = MediCard.GameState;
       var diff = ai.aiDifficulty || 'normal';
@@ -3940,15 +4440,15 @@
           return;
         }
 
-        // Build categorized lists
+        // Build categorized lists (includes juedou as offensive card)
         var attackIndices = [], equipIndices = [], otherIndices = [];
         for (var i = 0; i < ai.hand.length; i++) {
           var c = ai.hand[i];
           if (c.cardType === 'defense') continue;
           if (c.cardSubtype === 'jiJiu' && ai.resources.hp.current > 1) continue;
-          if ((c.cardType === 'attack' || c.cardType === 'juesha') && aiAttacksThisTurn >= (ai.maxAttacks || 1)) continue;
-          if ((c.cardType === 'attack' || c.cardType === 'juesha') && ai._skipAttacksThisTurn) continue;
-          if (c.cardType === 'attack' || c.cardType === 'juesha') {
+          if ((c.cardType === 'attack' || c.cardType === 'juesha' || c.cardType === 'juedou') && aiAttacksThisTurn >= (ai.maxAttacks || 1)) continue;
+          if ((c.cardType === 'attack' || c.cardType === 'juesha' || c.cardType === 'juedou') && ai._skipAttacksThisTurn) continue;
+          if (c.cardType === 'attack' || c.cardType === 'juesha' || c.cardType === 'juedou') {
             attackIndices.push(i);
           } else if (c.cardType === 'equipment') {
             equipIndices.push(i);
@@ -3984,59 +4484,70 @@
         }
 
         var card = ai.hand[idx];
-        ai.hand.splice(idx, 1);
 
-        switch (card.cardType) {
-          case 'attack':
-          case 'juesha':
+        // ── Attack / 绝杀 / 决斗: route through MPAttackResolver (same pipeline as humans) ──
+        if (card.cardType === 'attack' || card.cardType === 'juesha' || card.cardType === 'juedou') {
+          // Pick random target from all alive non-self players (AI or human)
+          var targets = gs.players.filter(function(p) { return p.alive && p.id !== ai.id; });
+          if (targets.length === 0) {
+            self._enforceHandLimit(ai);
+            self._syncAIState();
+            setTimeout(function() { self._continueNewTurn(); }, 800);
+            return;
+          }
+          var target = targets[Math.floor(Math.random() * targets.length)];
+          var targetIdx = gs.players.indexOf(target);
+          var cardIdx = idx;
+
+          // Set callback: after attack resolves, continue play loop
+          self._aiPlayCallback = function() {
             aiAttacksThisTurn++;
-            var answered = Math.random() < correctChance;
-            gs.discardPile.push(card);
-            if (answered) {
-              var atkBonus = ai.attackBonus || 0;
-              var baseDmg = 1 + atkBonus;
-              var dmgResult = MediCard.Resources.dealDamage(target, baseDmg);
-              self._logAction('🤖 ' + (ai.name || 'AI') + ' 使用' + (card.cardName || '攻击') + '，' + (target.name || '玩家') + ' 受到' + dmgResult.actual + '点伤害');
-              self._syncAIState();
-              if (!target.alive) {
-                self._logAction((target.name || '玩家') + ' 被击杀');
-                self._checkGameEnd();
-              }
-            } else {
-              self._logAction('🤖 ' + (ai.name || 'AI') + ' 使用' + (card.cardName || '攻击') + '但失败了');
-            }
             self._updateDisplay();
             setTimeout(playNextCard, 600);
-            break;
+          };
 
+          var atkLabel = card.cardType === 'juesha' ? '绝杀' : (card.cardType === 'juedou' ? '决斗' : '攻击');
+          self._logAction('🤖 ' + (ai.name || 'AI') + ' 对 ' + (target.name || 'P' + targetIdx) + ' 使用' + (card.cardName || atkLabel));
+          self._updateDisplay();
+
+          // Route through normal attack pipeline — handles card removal, defender answer, damage, broadcast
+          MediCard.MPAttackResolver.executeAttack(self, ai, card, cardIdx, targetIdx);
+          return;
+        }
+
+        // ── Non-attack cards: apply directly (same effects as human path) ──
+        ai.hand.splice(idx, 1);
+        gs.discardPile.push(card);
+
+        // Track answer success based on difficulty
+        var answered = Math.random() < correctChance;
+
+        switch (card.cardType) {
           case 'heal':
-            gs.discardPile.push(card);
-            if (Math.random() < correctChance) {
+            if (answered) {
               MediCard.Resources.healDamage(ai, 1);
               self._logAction('🤖 ' + (ai.name || 'AI') + ' 治疗自己，+1HP');
             } else {
               self._logAction('🤖 ' + (ai.name || 'AI') + ' 治疗失败');
             }
             self._updateDisplay();
-            self._syncAIState();
             setTimeout(playNextCard, 500);
             break;
 
           case 'tactic':
-            gs.discardPile.push(card);
-            if (Math.random() < correctChance) {
-              self._resolveMultiplayerAITactic(card, ai, target);
+            if (answered) {
+              var tacTargets = gs.players.filter(function(p) { return p.alive && p.id !== ai.id; });
+              var tacTarget = tacTargets.length > 0 ? tacTargets[Math.floor(Math.random() * tacTargets.length)] : ai;
+              self._resolveMultiplayerAITactic(card, ai, tacTarget);
             } else {
               self._logAction('🤖 ' + (ai.name || 'AI') + ' 锦囊「' + (card.cardName || '') + '」失败');
             }
             self._updateDisplay();
-            self._syncAIState();
             setTimeout(playNextCard, 600);
             break;
 
           case 'equipment':
-            gs.discardPile.push(card);
-            if (Math.random() < correctChance) {
+            if (answered) {
               var slot = card.equipSlot;
               if (slot) {
                 var old = ai.equipment[slot];
@@ -4048,12 +4559,10 @@
               self._logAction('🤖 ' + (ai.name || 'AI') + ' 装备「' + (card.cardName || '') + '」失败');
             }
             self._updateDisplay();
-            self._syncAIState();
             setTimeout(playNextCard, 500);
             break;
 
           default:
-            gs.discardPile.push(card);
             self._updateDisplay();
             setTimeout(playNextCard, 400);
         }
@@ -4143,6 +4652,8 @@
     /* ============ New Turn (Player) ============ */
 
     _startNewTurn() {
+      // FIX-P1-003: Clear all pending timers before new turn
+      this._clearAllTimers();
       this._clearActionLog();
       var player = this._player;
       var gs = MediCard.GameState;
@@ -4177,7 +4688,21 @@
       if (idx >= delayedCards.length) { callback(); return; }
 
       var card = delayedCards[idx];
-      // Player needs to answer the delayed tactic question
+
+      // Special: 雷电牌 triggers number picker + chain judgment
+      if (card.cardSubtype === 'leiDian' || card.cardType === 'leiDian' ||
+          (card.cardName && card.cardName.indexOf('雷电') >= 0)) {
+        self._flashPhase('⚡ 雷电牌判定！选择一个数字(0-9)...');
+        MediCard.GameState.discardPile.push(card);
+        // Store LeiDian context for after number pick
+        self._leiDianCallback = function() {
+          self._runPlayerJudgment(delayedCards, idx + 1, callback);
+        };
+        self._promptLeiDianNumber();
+        return;
+      }
+
+      // Normal delayed tactic: answer question
       MediCard.QuestionPopup.show(card, function(result) {
         self._trackAnswer(result, card);
         if (result.correct) {
@@ -4194,6 +4719,9 @@
     },
 
     _continueNewTurn() {
+      try {
+      // FIX-P1-003: Clear stale timers on turn transition
+      this._clearAllTimers();
       var self = this;
       var gs = MediCard.GameState;
 
@@ -4214,6 +4742,10 @@
         this._selectedDiscardIndices = [];
         this._pendingCard = null;
         this._attackInProgress = null;
+        this._aiPlayCallback = null;
+        this._medicalDictUsedThisTurn = false;
+        this._scalpelBonus = false;
+        this._scalpelResolved = false;
         this._playedCardsThisTurn = [];
         this._attacksThisTurn = 0;
         this._jueshaPlayedThisTurn = false;
@@ -4263,6 +4795,8 @@
         if (isMyTurnNow) {
           this._player = cp;
           this._updateDisplay();
+          // FIX-P1-001: Start turn timeout countdown
+          this._startTurnTimer();
         } else {
           this._updateDisplay();
           // AI or remote player turn — wait for their actions
@@ -4309,6 +4843,9 @@
       this._attacksThisTurn = 0;
       this._jueshaPlayedThisTurn = false;
       this._duelInProgress = null;
+      this._medicalDictUsedThisTurn = false;
+      this._scalpelBonus = false;
+      this._scalpelResolved = false;
       this._playedCardsThisTurn = [];
       this._selectedCardIndex = -1;
 
@@ -4348,6 +4885,20 @@
       if (turnEl) turnEl.textContent = '你的回合';
       var phaseEl = document.getElementById('phase-indicator');
       if (phaseEl) phaseEl.textContent = '选择卡牌出牌';
+      // FIX-P1-001: Start turn timeout countdown
+      this._startTurnTimer();
+      } catch (e) {
+        console.error('[Battle] _continueNewTurn crashed:', e);
+        if (MediCard.BattleLogger) {
+          MediCard.BattleLogger.log('CRASH', 'continue_new_turn', e.message || 'unknown');
+        }
+        // Emergency recovery: clear stuck state and update display
+        this._attackInProgress = null;
+        this._turnActive = false;
+        this._isDiscardPhase = false;
+        if (this._attackTimeout) { clearTimeout(this._attackTimeout); this._attackTimeout = null; }
+        try { this._updateDisplay(); } catch (e2) {}
+      }
     },
 
     // Quick AI turn with no play (when player turn skipped)
@@ -4369,6 +4920,10 @@
     /* ============ Game End ============ */
 
     _endGame(preChecked) {
+      // FIX-P1-001: Stop turn timeout on game end
+      MediCard.TurnSystem.stopTurnTimer();
+      // FIX-P1-003: Clear all pending timers on game end
+      this._clearAllTimers();
       var gs = MediCard.GameState;
       var victory = preChecked || MediCard.Victory.check(gs.players);
       var myIdentity = this._player.identity;
@@ -4422,24 +4977,32 @@
         debugLog: this._debugLog.slice(-200)
       });
 
-      // Push cumulative stats to global leaderboard server
+      // Push cumulative stats to local cache + global leaderboard server
       try {
         var MC = window.MedicalKillCommunity;
-        if (MC && MC.Leaderboard && MC.Leaderboard.pushToServer) {
+        if (MC) {
           var user = MediCard.Storage.getCurrentUser();
           var allStats = MediCard.Storage.getGameStats();
           var totalWins = allStats.filter(function(s) { return s.won; }).length;
           var totalGames = allStats.length;
           var cumulativeScore = allStats.reduce(function(a, s) { return a + (s.score || 0); }, 0);
           var cumulativeWinRate = totalGames > 0 ? Math.round(totalWins / totalGames * 100) : 0;
-          MC.Leaderboard.pushToServer({
+          var entry = {
             userId: MediCard.Storage.getCurrentUserId(),
             name: user ? user.username : '',
             score: Math.round(cumulativeScore),
             wins: totalWins,
             totalGames: totalGames,
             winRate: cumulativeWinRate
-          });
+          };
+          // Update local cache immediately (critical - was never called before)
+          if (MC.updateLeaderboard) {
+            MC.updateLeaderboard('battle', entry);
+          }
+          // Push to server with weekly flag
+          if (MC.Leaderboard && MC.Leaderboard.pushToServer) {
+            MC.Leaderboard.pushToServer(entry, true);
+          }
         }
       } catch(e) { /* silent */ }
 
@@ -4452,6 +5015,16 @@
         this._dropCheckInterval = null;
       }
 
+      // Broadcast game over to all clients before resetting state
+      if (this._isHost && this._isMultiplayer) {
+        this._sendSync({
+          type: 'game_over',
+          players: gs.players.map(function(p) {
+            return { hp: p.resources.hp.current, alive: p.alive };
+          })
+        });
+      }
+
       // Reset multiplayer state to prevent leakage into next game
       this._isMultiplayer = false;
       this._isHost = false;
@@ -4462,6 +5035,93 @@
 
       MediCard.GameState.goToScreen('result');
       this._turnActive = false;
+    },
+
+    /* ============ Timer Lifecycle (P1-003) ============ */
+
+    /** Register a timer for bulk cleanup on disconnect/game-end. Returns the timer ID. */
+    _trackTimer: function(timerId) {
+      if (this._activeTimers.indexOf(timerId) === -1) {
+        this._activeTimers.push(timerId);
+      }
+      return timerId;
+    },
+
+    /** Clear all tracked timers — call on turn reset, disconnect, or game end. */
+    _clearAllTimers: function() {
+      var timers = this._activeTimers;
+      this._activeTimers = [];
+      for (var i = 0; i < timers.length; i++) {
+        clearTimeout(timers[i]);
+        clearInterval(timers[i]);
+      }
+      // Also clear known named timers that may not be tracked yet
+      if (this._attackTimeout) { clearTimeout(this._attackTimeout); this._attackTimeout = null; }
+      if (this._responseTimer) { clearInterval(this._responseTimer); this._responseTimer = null; }
+      if (this._flashTimer) { clearTimeout(this._flashTimer); this._flashTimer = null; }
+      if (this._dropCheckInterval) { clearInterval(this._dropCheckInterval); this._dropCheckInterval = null; }
+    },
+
+    /* ============ Turn Timer (P1-001) ============ */
+
+    /** Start the turn timeout countdown. On expiry, auto-ends the player's turn. */
+    _startTurnTimer: function() {
+      if (!this._turnActive) return;
+      var self = this;
+      MediCard.TurnSystem.startTurnTimer(
+        MediCard.Config.defaults.turnTimeLimit,
+        function(timeLeft) {
+          // Update timer display in UI
+          var timerEl = document.getElementById('turn-timer');
+          if (timerEl) {
+            timerEl.textContent = timeLeft + 's';
+            if (timeLeft <= 10) {
+              timerEl.style.color = 'var(--accent-red)';
+            } else if (timeLeft <= 20) {
+              timerEl.style.color = 'var(--accent-yellow)';
+            } else {
+              timerEl.style.color = '';
+            }
+          }
+        },
+        function() {
+          // Timeout: auto-end turn
+          self._flashPhase('⏰ 回合时间到！自动结束回合');
+          self._onTurnTimeout();
+        }
+      );
+    },
+
+    /** Called when turn timer expires — force-end the current turn. */
+    _onTurnTimeout: function() {
+      // Clear any in-progress attacks
+      if (this._attackInProgress) {
+        if (MediCard.MPAttackResolver) {
+          MediCard.MPAttackResolver.clearHostGuard(this);
+        }
+        this._attackInProgress = null;
+      }
+      if (this._attackTimeout) {
+        clearTimeout(this._attackTimeout);
+        this._attackTimeout = null;
+      }
+      this._pendingCard = null;
+      this._selectedCardIndex = -1;
+      this._scalpelBonus = false;
+      this._scalpelResolved = false;
+
+      // Trigger the normal end-turn flow
+      if (this._isMultiplayer) {
+        if (!this._isHost) {
+          MediCard.NetworkClient.sendEndTurn();
+          this._turnActive = false;
+          this._updateDisplay();
+        } else {
+          this._continueNewTurn();
+        }
+      } else {
+        this._executeAITurn();
+      }
     },
 
     /* ============ Helpers ============ */
@@ -4589,6 +5249,7 @@
       this._updateHandLimit();
       this._updatePlayButton();
       this._updateDiscardActionButton();
+      this._updateMedicalDictButton();
       this._updateEndTurnButton();
       this._updatePlayedCardsIndicator();
     },
@@ -4813,12 +5474,33 @@
         });
       }
 
+      var btnMedDict = document.getElementById('btn-medical-dict');
+      if (btnMedDict) {
+        btnMedDict.addEventListener('click', function() {
+          if (MediCard.GameState.currentPlayerIndex !== myIdx) return;
+          if (!self._turnActive || self._attackInProgress) return;
+          self._executeMedicalDict();
+        });
+      }
+
       if (btnEnd) {
         btnEnd.addEventListener('click', function() {
           if (MediCard.GameState.currentPlayerIndex === myIdx && self._turnActive && !self._attackInProgress) {
-            self._playedCardsThisTurn = [];
-            self._endTurn();
-            self._renderHand();
+            var player = self._player;
+            var limit = MediCard.Resources.getHandLimit(player);
+            var excess = player.hand.length - limit;
+            if (excess > 0 && limit > 0) {
+              // Hand exceeds limit — enter discard phase, auto-end turn after discard completes
+              self._flashPhase('⚠️ 手牌超过上限 ' + excess + ' 张，请弃牌后自动结束回合');
+              self._startDiscardPhase(excess, function() {
+                self._playedCardsThisTurn = [];
+                self._endTurn();
+              });
+            } else {
+              self._playedCardsThisTurn = [];
+              self._endTurn();
+              self._renderHand();
+            }
           }
         });
       }
@@ -4880,43 +5562,25 @@
 
     /** Attach multiplayer-specific events (target selection etc.) */
     _attachMultiplayerEvents: function() {
-      var self = this;
-      // Opponent click for attack targeting
-      var opponents = document.querySelectorAll('.multiplayer-opponent');
-      for (var i = 0; i < opponents.length; i++) {
-        opponents[i].addEventListener('click', function() {
-          var playerIdx = parseInt(this.getAttribute('data-player-index'), 10);
-          if (isNaN(playerIdx)) return;
-          var gs = MediCard.GameState;
-          var target = gs.players[playerIdx];
-          if (!target || !target.alive) return;
-
-          if (self._pendingAttackCardIndex >= 0) {
-            self._attackTargetIndex = playerIdx;
-            document.getElementById('attack-target-prompt').style.display = 'none';
-            self._doPlayAttackOnTarget();
-          }
-        });
-      }
-
-      // ESC to cancel target selection
-      document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') {
-          if (self._pendingAttackCardIndex >= 0) {
-            self._pendingAttackCardIndex = -1;
-            self._attackTargetIndex = -1;
-            document.getElementById('attack-target-prompt').style.display = 'none';
-            self._updateDisplay();
-          }
-        }
-      });
+      // Target selection is now handled by MediCard.TargetSelector (modular strategies).
+      // Opponent div click handlers are no longer needed here.
+      // This function remains as a hook for future opponent-interaction features
+      // (e.g. 听诊器 peeking, equipment inspection).
     },
 
     /** Execute attack on selected target in multiplayer — sends intent to host, defender answers */
     _doPlayAttackOnTarget: function() {
       var cardIdx = this._pendingAttackCardIndex;
       var targetIdx = this._attackTargetIndex;
-      var self = this;
+
+      var card = this._player.hand[cardIdx];
+
+      // Scalpel intercept: check BEFORE clearing indices (for re-entry)
+      if (card && card.cardType === 'attack' && this._hasScalpelAvailable() && !this._scalpelResolved) {
+        this._showScalpelPrompt(cardIdx, 'multiplayer');
+        return;
+      }
+      this._scalpelResolved = false;
 
       this._pendingAttackCardIndex = -1;
       this._attackTargetIndex = -1;
@@ -4924,7 +5588,6 @@
       var promptEl = document.getElementById('attack-target-prompt');
       if (promptEl) promptEl.style.display = 'none';
 
-      var card = this._player.hand[cardIdx];
       if (!card) { this._updateDisplay(); return; }
 
       var target = MediCard.GameState.players[targetIdx];
@@ -4932,35 +5595,14 @@
 
       this._log('card_played', (card.cardName || '卡牌') + ' → ' + target.name);
 
-      // Set per-turn limits immediately to prevent double-play before async resolve
-      if (card.cardType === 'juesha') this._jueshaPlayedThisTurn = true;
-
-      // Set guard to prevent playing another card while waiting
-      this._attackInProgress = { type: 'waiting_defend', cardIndex: cardIdx };
-
-      if (this._isHost) {
-        // Host handles directly — route by card type
-        if (card.cardType === 'juesha') {
-          this._handleJueshaMpIntent(this._myPlayerIndex, cardIdx, targetIdx);
-        } else if (card.cardType === 'juedou') {
-          this._handleJuedouMpIntent(this._myPlayerIndex, cardIdx, targetIdx);
-        } else {
-          this._handleAttackIntent(this._myPlayerIndex, cardIdx, targetIdx);
-        }
-      } else {
-        // Client sends intent to host
-        this._sendSync({
-          type: 'offensive_intent',
-          cardType: card.cardType,
-          cardIndex: cardIdx,
-          targetIdx: targetIdx
-        });
-        this._flashPhase('🎯 等待对手回应...');
-      }
+      // Consume and pass scalpel bonus to attack resolver
+      var scalpelBonus = this._scalpelBonus;
+      this._scalpelBonus = false;
+      MediCard.MPAttackResolver.executeAttack(this, this._player, card, cardIdx, targetIdx, scalpelBonus);
     },
 
     /** Host: process an attack intent from any player */
-    _handleAttackIntent: function(attackerIdx, cardIndex, targetIdx) {
+    _handleAttackIntent: function(attackerIdx, cardIndex, targetIdx, scalpelBonus) {
       var gs = MediCard.GameState;
       var attacker = gs.players[attackerIdx];
       var defender = gs.players[targetIdx];
@@ -4980,10 +5622,23 @@
         defender: defender,
         attackerIndex: attackerIdx,
         defenderIndex: targetIdx,
-        cardIndex: cardIndex
+        cardIndex: cardIndex,
+        scalpelBonus: !!scalpelBonus,
+        startedAt: Date.now()
       };
 
+      // Safety timeout: auto-clear if no answer within 45s (defender disconnected)
       var self = this;
+      var attackCtx = this._attackInProgress;
+      this._attackTimeout = this._trackTimer(setTimeout(function() {
+        if (self._attackInProgress === attackCtx) {
+          MediCard.MPAttackResolver.clearHostGuard(self);
+          self._flashPhase('⏰ 防守方超时未应答，攻击自动取消');
+          self._sendSync({ type: 'attack_cancel', sourceIdx: self._myPlayerIndex });
+          self._updateDisplay();
+        }
+      }, 45000));
+
       if (defender === gs.players[this._myPlayerIndex]) {
         // Host IS the defender — answer locally
         this._flashPhase('🛡️ ' + attacker.name + ' 对你使用' + (card.cardName || '杀') + '！请答题');
@@ -4991,17 +5646,38 @@
           self._trackAnswer(result, card);
           self._resolveDefendAnswer(result.correct);
         }, '你');
+      } else if (defender.isAI) {
+        // AI defender — auto-answer without popup
+        var cmpDiff = defender.aiDifficulty || 'normal';
+        var cmpCorrect = { easy: 0.25, normal: 0.55, hard: 0.80 }[cmpDiff] || 0.55;
+        var answered = Math.random() < cmpCorrect;
+        self._logAction('🤖 ' + (defender.name || 'AI') + ' 防御答题' + (answered ? '正确' : '错误'));
+        self._trackAnswer({ correct: answered }, card);
+        setTimeout(function() { self._resolveDefendAnswer(answered); }, 500 + Math.random() * 1500);
       } else {
-        // Defender is a remote client — send question to them
-        var conns = MediCard.NetworkHost._connections;
-        // defender client index: player 0=host, player 1=conns[0], player 2=conns[1]
-        var clientIdx = targetIdx - 1;
-        if (clientIdx >= 0 && clientIdx < conns.length && conns[clientIdx].open) {
-          conns[clientIdx].send(MediCard.SyncProtocol.pack(
+        // Defender is a remote client — validate route, then send question
+        var route = MediCard.MPAttackResolver.validateDefenderRoute(this, targetIdx);
+        if (route.ok) {
+          route.conn.send(MediCard.SyncProtocol.pack(
             MediCard.SyncProtocol.MessageType.DEFEND_QUESTION,
             { card: card, attackerName: attacker.name }
           ));
           this._flashPhase('🎯 等待 ' + defender.name + ' 答题...');
+        } else if (route.localResolve) {
+          // Target IS the host (shouldn't reach here, but handle gracefully)
+          this._flashPhase('🛡️ ' + attacker.name + ' 对你使用' + (card.cardName || '杀') + '！请答题');
+          MediCard.QuestionPopup.show(card, function(result) {
+            self._trackAnswer(result, card);
+            self._resolveDefendAnswer(result.correct);
+          }, '你');
+        } else {
+          // Can't reach defender — cancel attack gracefully
+          if (MediCard.BattleLogger) {
+            MediCard.BattleLogger.log('ATTACK_ROUTE_FAIL', 'handle_attack_intent',
+              'Cannot route to defender', { targetIdx: targetIdx, reason: route.reason });
+          }
+          MediCard.MPAttackResolver.cancelAttack(self, route.reason, defender.name);
+          return; // skip _updateDisplay — cancelAttack already calls it
         }
       }
       this._updateDisplay();
@@ -5028,7 +5704,18 @@
         attackerIndex: attackerIdx, defenderIndex: targetIdx, cardIndex: cardIndex
       };
 
+      // Host-side safety timeout
       var self = this;
+      var jdCtx = this._attackInProgress;
+      this._attackTimeout = this._trackTimer(setTimeout(function() {
+        if (self._attackInProgress === jdCtx) {
+          MediCard.MPAttackResolver.clearHostGuard(self);
+          self._flashPhase('⏰ 防守方超时未应答，决斗自动取消');
+          self._sendSync({ type: 'attack_cancel', sourceIdx: self._myPlayerIndex });
+          self._updateDisplay();
+        }
+      }, 45000));
+
       if (defender === gs.players[this._myPlayerIndex]) {
         // Host IS the defender — answer locally
         this._flashPhase('⚔️ ' + attacker.name + ' 对你使用' + (card.cardName || '决斗') + '！无法防御，请答题');
@@ -5036,16 +5723,32 @@
           self._trackAnswer(result, card);
           self._resolveMpJuedouAnswer(result.correct);
         }, '你');
+      } else if (defender.isAI) {
+        // AI defender — auto-answer without popup
+        var jdDiff = defender.aiDifficulty || 'normal';
+        var jdCorrect = { easy: 0.25, normal: 0.55, hard: 0.80 }[jdDiff] || 0.55;
+        var jdAnswered = Math.random() < jdCorrect;
+        self._logAction('🤖 ' + (defender.name || 'AI') + ' 决斗答题' + (jdAnswered ? '正确' : '错误'));
+        self._trackAnswer({ correct: jdAnswered }, card);
+        setTimeout(function() { self._resolveMpJuedouAnswer(jdAnswered); }, 500 + Math.random() * 1500);
       } else {
-        // Defender is a remote client — send question
-        var conns = MediCard.NetworkHost._connections;
-        var clientIdx = targetIdx - 1;
-        if (clientIdx >= 0 && clientIdx < conns.length && conns[clientIdx].open) {
-          conns[clientIdx].send(MediCard.SyncProtocol.pack(
+        // Defender is a remote client — validate route, then send question
+        var route = MediCard.MPAttackResolver.validateDefenderRoute(self, targetIdx);
+        if (route.ok) {
+          route.conn.send(MediCard.SyncProtocol.pack(
             MediCard.SyncProtocol.MessageType.DEFEND_QUESTION,
             { card: card, attackerName: attacker.name, isJuedou: true }
           ));
-          this._flashPhase('⚔️ 等待 ' + defender.name + ' 答题（决斗）...');
+          self._flashPhase('⚔️ 等待 ' + defender.name + ' 答题（决斗）...');
+        } else if (route.localResolve) {
+          self._flashPhase('⚔️ ' + attacker.name + ' 对你使用' + (card.cardName || '决斗') + '！无法防御，请答题');
+          MediCard.QuestionPopup.show(card, function(result) {
+            self._trackAnswer(result, card);
+            self._resolveMpJuedouAnswer(result.correct);
+          }, '你');
+        } else {
+          MediCard.MPAttackResolver.cancelAttack(self, route.reason, defender.name);
+          return;
         }
       }
       this._updateDisplay();
@@ -5055,7 +5758,7 @@
     _resolveMpJuedouAnswer: function(defenderCorrect) {
       var ctx = this._attackInProgress;
       if (!ctx) return;
-      this._attackInProgress = null;
+      MediCard.MPAttackResolver.clearHostGuard(this);
 
       var inflictedDamage = 0;
       if (defenderCorrect) {
@@ -5088,6 +5791,13 @@
         var victory = MediCard.Victory.check(MediCard.GameState.players);
         if (victory) setTimeout(function() { self._endGame(victory); }, 1500);
       }
+
+      // Chain AI card plays if callback is set
+      if (this._aiPlayCallback) {
+        var nextCb = this._aiPlayCallback;
+        this._aiPlayCallback = null;
+        setTimeout(nextCb, 600);
+      }
     },
 
     /** Client: show defend question received from host */
@@ -5100,10 +5810,10 @@
       this._flashPhase(label + ' ' + data.attackerName + ' 对你使用' + (card.cardName || '杀') + '！请答题');
       MediCard.QuestionPopup.show(card, function(result) {
         self._trackAnswer(result, card);
-        // Send answer back to host
+        // FIX-P1-002: Send choice only — host validates against card.correctAnswers
         MediCard.NetworkClient.send(MediCard.SyncProtocol.pack(
           MediCard.SyncProtocol.MessageType.DEFEND_ANSWER,
-          { correct: result.correct, isJuesha: isJuesha, isJuedou: isJuedou }
+          { choice: result.choice, isJuesha: isJuesha, isJuedou: isJuedou }
         ));
         self._flashPhase('⏳ 等待结果...');
       }, '你');
@@ -5113,7 +5823,7 @@
     _resolveDefendAnswer: function(defenderCorrect) {
       var ctx = this._attackInProgress;
       if (!ctx) return;
-      this._attackInProgress = null;
+      MediCard.MPAttackResolver.clearHostGuard(this);
 
       var inflictedDamage = 0;
       if (defenderCorrect) {
@@ -5129,7 +5839,7 @@
           damage += attacker.attackBonus;
           parts.push('加成+' + attacker.attackBonus);
         }
-        if (attacker.equipment && attacker.equipment.weapon && attacker.equipment.weapon.cardSubtype === 'shouShuDao') {
+        if (ctx.scalpelBonus) {
           damage += 1;
           parts.push('手术刀+1');
         }
@@ -5186,6 +5896,13 @@
           setTimeout(function() { self._endGame(victory); }, 1500);
         }
       }
+
+      // Chain AI card plays if callback is set
+      if (this._aiPlayCallback) {
+        var nextCb = this._aiPlayCallback;
+        this._aiPlayCallback = null;
+        setTimeout(nextCb, 600);
+      }
     },
 
     /** Host: handle 绝杀 intent in multiplayer */
@@ -5239,6 +5956,17 @@
       gs.discardPile.push(defCard);
       this._flashPhase('🛡️ 绝杀！' + defender.name + '消耗守卫牌抵挡，但必须答题！');
 
+      // Host-side safety timeout
+      var jsCtx = this._attackInProgress;
+      this._attackTimeout = setTimeout(function() {
+        if (self._attackInProgress === jsCtx) {
+          MediCard.MPAttackResolver.clearHostGuard(self);
+          self._flashPhase('⏰ 防守方超时未应答，绝杀自动取消');
+          self._sendSync({ type: 'attack_cancel', sourceIdx: self._myPlayerIndex });
+          self._updateDisplay();
+        }
+      }, 45000);
+
       // Defender is local (host answers) or remote?
       if (defender === gs.players[this._myPlayerIndex]) {
         // Host IS the defender — show question locally
@@ -5246,16 +5974,31 @@
           self._trackAnswer(result, card);
           self._resolveMpJueshaAnswer(result.correct);
         }, '你');
+      } else if (defender.isAI) {
+        // AI defender — auto-answer without popup
+        var jsDiff = defender.aiDifficulty || 'normal';
+        var jsCorrect = { easy: 0.25, normal: 0.55, hard: 0.80 }[jsDiff] || 0.55;
+        var jsAnswered = Math.random() < jsCorrect;
+        self._logAction('🤖 ' + (defender.name || 'AI') + ' 绝杀答题' + (jsAnswered ? '正确' : '错误'));
+        self._trackAnswer({ correct: jsAnswered }, card);
+        setTimeout(function() { self._resolveMpJueshaAnswer(jsAnswered); }, 500 + Math.random() * 1500);
       } else {
-        // Defender is remote — send question
-        var conns = MediCard.NetworkHost._connections;
-        var clientIdx = targetIdx - 1;
-        if (clientIdx >= 0 && clientIdx < conns.length && conns[clientIdx].open) {
-          conns[clientIdx].send(MediCard.SyncProtocol.pack(
+        // Defender is remote — validate route, then send question
+        var route = MediCard.MPAttackResolver.validateDefenderRoute(self, targetIdx);
+        if (route.ok) {
+          route.conn.send(MediCard.SyncProtocol.pack(
             MediCard.SyncProtocol.MessageType.DEFEND_QUESTION,
             { card: card, attackerName: attacker.name, isJuesha: true }
           ));
-          this._flashPhase('💀 等待 ' + defender.name + ' 答题（绝杀）...');
+          self._flashPhase('💀 等待 ' + defender.name + ' 答题（绝杀）...');
+        } else if (route.localResolve) {
+          MediCard.QuestionPopup.show(card, function(result) {
+            self._trackAnswer(result, card);
+            self._resolveMpJueshaAnswer(result.correct);
+          }, '你');
+        } else {
+          MediCard.MPAttackResolver.cancelAttack(self, route.reason, defender.name);
+          return;
         }
       }
       this._updateDisplay();
@@ -5265,7 +6008,7 @@
     _resolveMpJueshaAnswer: function(defenderCorrect) {
       var ctx = this._attackInProgress;
       if (!ctx) return;
-      this._attackInProgress = null;
+      MediCard.MPAttackResolver.clearHostGuard(this);
 
       var inflictedDamage = 0;
       if (defenderCorrect) {
@@ -5292,14 +6035,21 @@
         var victory = MediCard.Victory.check(MediCard.GameState.players);
         if (victory) setTimeout(function() { self._endGame(victory); }, 1500);
       }
+
+      // Chain AI card plays if callback is set
+      if (this._aiPlayCallback) {
+        var nextCb = this._aiPlayCallback;
+        this._aiPlayCallback = null;
+        setTimeout(nextCb, 600);
+      }
     },
 
     /** Host: apply 绝杀 damage in multiplayer */
     _applyMpJueshaDamage: function(attacker, defender) {
-      var weaponBonus = (attacker.equipment && attacker.equipment.weapon && attacker.equipment.weapon.cardSubtype === 'shouShuDao') ? 1 : 0;
+      // Scalpel only works on attack cards, not juesha
       var identityBonus = MediCard.IdentitySkills ? MediCard.IdentitySkills.getDamageBonus(attacker, defender) : 0;
       var attackPotionBonus = (attacker.attackBonus || 0);
-      var totalDmg = 1 + weaponBonus + identityBonus + attackPotionBonus;
+      var totalDmg = 1 + identityBonus + attackPotionBonus;
       if (defender.equipment && defender.equipment.armor && defender.equipment.armor.cardSubtype === 'baiDaGua') {
         totalDmg = Math.max(1, totalDmg - 1);
       }

@@ -70,7 +70,8 @@
   window._medicardGoMulti = function() {
     MediCard.Audio.playButtonClick();
     MediCard.GameState.setMode('multiplayer');
-    MediCard.GameState.goToScreen('lobby');
+    MediCard.ScreenSubject._forMultiplayer = true;
+    MediCard.GameState.goToScreen('subject');
   };
   window._medicardShowStats = function() {
     MediCard.Audio.playButtonClick();
@@ -209,6 +210,7 @@
         '<div class="title-menu stagger-children">' +
           '<button class="btn btn-primary btn-lg" id="btn-single">⚔️ 单人练习</button>' +
           '<button class="btn btn-gold btn-lg" id="btn-multi">🌐 联机对战</button>' +
+          '<button class="btn btn-study btn-lg" id="btn-study" style="background:linear-gradient(135deg, #06b6d4, #10b981);color:#fff;">📖 医途刷题工坊</button>' +
           '<button class="btn btn-secondary btn-lg" id="btn-notebook">📝 错题本</button>' +
         '</div>';
 
@@ -223,6 +225,12 @@
 
       if (btnSingle) btnSingle.addEventListener('click', function(e) { window._medicardGoSingle(); });
       if (btnMulti) btnMulti.addEventListener('click', function(e) { window._medicardGoMulti(); });
+      var btnStudy = document.getElementById('btn-study');
+      if (btnStudy) btnStudy.addEventListener('click', function(e) {
+        MediCard.Audio.playButtonClick();
+        // Load subject metadata before entering study mode
+        MediCard.GameState.goToScreen('study');
+      });
       var btnNotebook = document.getElementById('btn-notebook');
       if (btnNotebook) btnNotebook.addEventListener('click', function(e) { window._medicardOpenNotebook(); });
 

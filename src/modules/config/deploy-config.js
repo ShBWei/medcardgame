@@ -6,10 +6,11 @@
   const MediCard = window.MediCard || {};
 
   MediCard.Config = {
-    version: '5.3.0',
+    version: '5.6.0',
     appName: 'MediCard 医杀',
 
     get mode() {
+      if (window.location.hostname.includes('pages.dev')) return 'cloudflare-pages';
       if (window.location.hostname.includes('github.io')) return 'github-pages';
       if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') return 'server';
       return 'local';
@@ -19,30 +20,50 @@
       host: window.location.hostname || 'localhost',
       port: (function() {
         var hn = window.location.hostname;
-        // Local dev: PeerJS runs on 9000, HTTP on 8080 — connect directly
-        if (hn === 'localhost' || hn === '127.0.0.1') return 9000;
-        // Remote (behind nginx): WebSocket /medicard proxied through 80/443
-        return Number(window.location.port) || (window.location.protocol === 'https:' ? 443 : 80);
+        var port = Number(window.location.port);
+        // Local dev: HTTP on 8080, PeerJS proxied via same port
+        if (hn === 'localhost' || hn === '127.0.0.1') return port || 8080;
+        // Remote: PeerJS proxied through HTTP port (internal WebSocket proxy)
+        return port || (window.location.protocol === 'https:' ? 443 : 80);
       })(),
       path: '/medicard',
       key: 'medicard',
-      secure: false,
-      debug: 0,
-      // ICE servers for NAT traversal (STUN + TURN for symmetric NAT)
+      // Auto-detect secure: WSS for HTTPS pages, WS for HTTP (mixed-content prevention)
+      secure: window.location.protocol === 'https:',
+      debug: 1,
+      // ICE servers for NAT traversal (STUN + multiple TURN for symmetric NAT fallback)
       config: {
         iceServers: [
+          // Google STUN (address discovery — UDP, works anywhere)
           { urls: 'stun:stun.l.google.com:19302' },
           { urls: 'stun:stun1.l.google.com:19302' },
           { urls: 'stun:stun2.l.google.com:19302' },
           { urls: 'stun:stun3.l.google.com:19302' },
           { urls: 'stun:stun4.l.google.com:19302' },
-          // Public TURN servers for symmetric NAT traversal
+          // Primary TURN: Metered.ca free tier (UDP + TCP + TLS fallbacks)
           {
-            urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443', 'turn:openrelay.metered.ca:443?transport=tcp'],
+            urls: [
+              'turn:openrelay.metered.ca:80?transport=udp',
+              'turn:openrelay.metered.ca:443?transport=tcp',
+              'turns:openrelay.metered.ca:443?transport=tcp'
+            ],
             username: 'openrelayproject',
             credential: 'openrelayproject'
-          }
-        ]
+          },
+          // Backup TURN: Viagenie (different provider for redundancy)
+          {
+            urls: [
+              'turn:numb.viagenie.ca:3478?transport=udp',
+              'turn:numb.viagenie.ca:3478?transport=tcp',
+              'turns:numb.viagenie.ca:5349?transport=tcp'
+            ],
+            username: 'webrtc@live.com',
+            credential: 'muazkh'
+          },
+        ],
+        iceTransportPolicy: 'all',
+        iceCandidatePoolSize: 4,
+        iceServersTimeout: 5000
       }
     },
 
@@ -114,7 +135,7 @@
       biaoBen:   { name: '标本检索', icon: '🔍', effect: '查看牌库顶3张牌，选1张加入手牌', answerer: 'self', count: 3 },
       yaoXiao:   { name: '药效增强', icon: '💊', effect: '本回合所有攻击伤害+1（可叠加）', answerer: 'self', count: 4 },
       mianYi:    { name: '免疫屏障', icon: '🛡️', effect: '下回合免疫所有伤害',            answerer: 'self', count: 3 },
-      qunTi:     { name: '群体会诊', icon: '👥', effect: '所有队友各摸1张牌',             answerer: 'self', count: 2 },
+      qunTi:     { name: '群体会诊', icon: '👥', effect: '所有其他玩家各摸1张牌',         answerer: 'self', count: 2 },
       jiaoCha:   { name: '交叉感染', icon: '🦠', effect: '对所有敌方玩家各造成1点伤害',    answerer: 'all',  count: 2 },
       duoJi:         { name: '多重打击', icon: '⚡', effect: '本回合可以额外使用攻击牌（重置攻击次数）', answerer: 'self', count: 2 },
       qiGuanZhaiChu: { name: '器官摘除', icon: '🫁', effect: '答对后选择目标对手，摘除其1个装备（可见）或随机弃其1张手牌（盲抽）', answerer: 'self', count: 2 },

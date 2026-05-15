@@ -20,7 +20,8 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "peer": "^1.0.2"
+    "peer": "^1.0.2",
+    "ws": "^8.20.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

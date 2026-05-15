@@ -10,9 +10,8 @@
   var MediCard = window.MediCard || {};
 
   MediCard.CardData = {
-    // Recently-used question tracking to avoid repetition
-    _recentlyUsedQIds: [],
-    _maxRecentQIds: 200,
+    // Used question tracking — truly without replacement per game session
+    _usedQIds: null, // Set object, initialized in generateFullDeck
 
     // Card type definitions with answer direction
     TYPES: {
@@ -53,6 +52,7 @@
         correctAnswers: question.correctAnswers || (question.ans || []),
         explanation: question.explanation || question.exp || '',
         knowledgePoint: question.knowledgePoint || question.kp || '',
+        questionType: question.questionType || 'single',
         textbookReference: question.textbookReference || question.ref || ''
       };
     },
@@ -104,6 +104,7 @@
         options: question.options || question.opts || [],
         correctAnswers: question.correctAnswers || (question.ans || []),
         explanation: question.explanation || question.exp || '',
+        questionType: question.questionType || 'single',
         knowledgePoint: question.knowledgePoint || question.kp || '',
         textbookReference: question.textbookReference || question.ref || ''
       };
@@ -131,6 +132,7 @@
         options: question.options || question.opts || [],
         correctAnswers: question.correctAnswers || (question.ans || []),
         explanation: question.explanation || question.exp || '',
+        questionType: question.questionType || 'single',
         knowledgePoint: question.knowledgePoint || question.kp || '',
         textbookReference: question.textbookReference || question.ref || ''
       };
@@ -159,6 +161,7 @@
         options: question.options || question.opts || [],
         correctAnswers: question.correctAnswers || (question.ans || []),
         explanation: question.explanation || question.exp || '',
+        questionType: question.questionType || 'single',
         knowledgePoint: question.knowledgePoint || question.kp || '',
         textbookReference: question.textbookReference || question.ref || ''
       };
@@ -187,11 +190,11 @@
       // Simple: generate 72 cards (48 attack, 16 defense, 8 heal)
       var selfB = this;
       var skipCountB = 0;
+      var usedQBasic = {};
       function nextQ() {
-        // If every question has been recently used, reshuffle and reset
         if (skipCountB >= shuffled.length) {
           shuffled = selfB._shuffle(shuffled.slice());
-          selfB._recentlyUsedQIds = [];
+          usedQBasic = {};
           skipCountB = 0;
           used = 0;
         }
@@ -200,20 +203,16 @@
         if (used >= shuffled.length) {
           used = 0;
           shuffled = selfB._shuffle(shuffled.slice());
-          selfB._recentlyUsedQIds = [];
+          usedQBasic = {};
           skipCountB = 0;
         }
-        // Skip recently used questions
-        if (q && selfB._recentlyUsedQIds.indexOf(q.id) >= 0) {
+        if (q && usedQBasic[q.id]) {
           skipCountB++;
           return nextQ();
         }
         skipCountB = 0;
         if (q && q.id) {
-          selfB._recentlyUsedQIds.push(q.id);
-          if (selfB._recentlyUsedQIds.length > selfB._maxRecentQIds) {
-            selfB._recentlyUsedQIds.shift();
-          }
+          usedQBasic[q.id] = true;
         }
         return q;
       }
@@ -249,18 +248,19 @@
       var comp = cfg ? cfg.fullDeckComposition : null;
       if (!comp) return [];
 
-      // Track recently-used questions for draw-without-replacement.
-      // Questions are only reused when the entire pool has been exhausted
-      // and reshuffled.
+      // Track used questions for draw-without-replacement (unlimited tracking).
+      // Questions are only reused when the entire pool has been exhausted.
       var self = this;
       var skipCount = 0;
+      var usedQ = {}; // truly without replacement: track ALL used question IDs
 
-      function nextQ() {
-        // If we've tried every question and all are recently-used, reset the pool
+      // preferType: when non-null, look ahead up to LOOKAHEAD questions for matching questionType
+      function nextQ(preferType) {
+        // If every question has been used, reset (pool exhausted)
         if (skipCount >= shuffled.length) {
           shuffled = self._shuffle(shuffled.slice());
           usedIdx = 0;
-          self._recentlyUsedQIds = [];
+          usedQ = {};
           skipCount = 0;
         }
 
@@ -268,30 +268,45 @@
         usedIdx++;
         if (usedIdx >= shuffled.length) {
           usedIdx = 0;
-          // Exhausted the pool — reshuffle and clear tracking for fresh cycle
           shuffled = self._shuffle(shuffled.slice());
-          self._recentlyUsedQIds = [];
+          usedQ = {};
           skipCount = 0;
-          // Re-fetch first question from reshuffled pool
           q = shuffled[usedIdx];
           usedIdx++;
         }
 
-        // Skip if this question was recently used
-        if (q && self._recentlyUsedQIds.indexOf(q.id) >= 0) {
+        // Skip if already used
+        if (q && usedQ[q.id]) {
           skipCount++;
-          return nextQ();
+          return nextQ(preferType);
         }
-        skipCount = 0;
 
-        // Track this question as recently used
-        if (q && q.id) {
-          self._recentlyUsedQIds.push(q.id);
-          if (self._recentlyUsedQIds.length > self._maxRecentQIds) {
-            self._recentlyUsedQIds.shift();
+        // If preferType is specified, try to find a matching question
+        if (preferType && q && q.questionType !== preferType) {
+          var LOOKAHEAD = Math.min(50, shuffled.length - usedIdx);
+          var found = -1;
+          for (var li = 0; li < LOOKAHEAD; li++) {
+            var liIdx = (usedIdx + li) % shuffled.length;
+            var lq = shuffled[liIdx];
+            if (lq && lq.questionType === preferType && !usedQ[lq.id]) {
+              found = liIdx;
+              break;
+            }
           }
+          if (found >= 0) {
+            // Swap the matching question into current position
+            var tmp = shuffled[usedIdx - 1];
+            shuffled[usedIdx - 1] = shuffled[found];
+            shuffled[found] = tmp;
+            q = shuffled[usedIdx - 1];
+          }
+          // Fall through: use whatever is available (current q)
         }
 
+        skipCount = 0;
+        if (q && q.id) {
+          usedQ[q.id] = true;
+        }
         return q;
       }
 
@@ -346,7 +361,7 @@
       tacticTypes.forEach(function(subtype) {
         var count = tc[subtype] || 0;
         for (var i = 0; i < count; i++) {
-          deck.push(this.createTacticCard(nextQ(), subtype));
+          deck.push(this.createTacticCard(nextQ('truefalse'), subtype));
         }
       }.bind(this));
 
@@ -356,7 +371,7 @@
       equipTypes.forEach(function(subtype) {
         var count = ec[subtype] || 0;
         for (var i = 0; i < count; i++) {
-          deck.push(this.createEquipmentCard(nextQ(), subtype));
+          deck.push(this.createEquipmentCard(nextQ('truefalse'), subtype));
         }
       }.bind(this));
 
@@ -366,7 +381,7 @@
       delayedTypes.forEach(function(subtype) {
         var count = dc[subtype] || 0;
         for (var i = 0; i < count; i++) {
-          deck.push(this.createDelayedCard(nextQ(), subtype));
+          deck.push(this.createDelayedCard(nextQ('truefalse'), subtype));
         }
       }.bind(this));
 

@@ -1,0 +1,3 @@
+# Cloudflare Pages SPA routing
+# Ensures all routes serve index.html (no 404 on refresh)
+/*    /index.html   200

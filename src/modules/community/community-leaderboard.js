@@ -236,14 +236,82 @@
         });
     },
 
-    /** Push stats to server after game ends */
-    pushToServer: function(entry) {
+    /** Push stats to server after game ends. Retries on failure + offline queue. */
+    pushToServer: function(entry, weekly) {
       if (!entry || !entry.userId) return;
-      fetch('/api/leaderboard', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify([entry])
-      }).catch(function() { /* ignore */ });
+      var payload = [entry];
+      if (weekly) {
+        payload.push(Object.assign({}, entry, { weekly: true }));
+      }
+      var self = this;
+      _doPush(payload, 0);
+
+      function _doPush(data, attempt) {
+        fetch('/api/leaderboard', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        }).then(function(res) {
+          if (res.ok) {
+            // Success — flush any queued entries
+            _flushQueue();
+          } else if (attempt < 2) {
+            setTimeout(function() { _doPush(data, attempt + 1); }, 2000 * (attempt + 1));
+          } else {
+            _enqueue(data);
+          }
+        }).catch(function() {
+          if (attempt < 2) {
+            setTimeout(function() { _doPush(data, attempt + 1); }, 2000 * (attempt + 1));
+          } else {
+            _enqueue(data);
+          }
+        });
+      }
+
+      function _enqueue(data) {
+        try {
+          var q = JSON.parse(localStorage.getItem('mkc_push_queue') || '[]');
+          q.push({ data: data, ts: Date.now() });
+          if (q.length > 20) q = q.slice(-20);
+          localStorage.setItem('mkc_push_queue', JSON.stringify(q));
+        } catch(e) {}
+      }
+
+      function _flushQueue() {
+        try {
+          var q = JSON.parse(localStorage.getItem('mkc_push_queue') || '[]');
+          if (!q.length) return;
+          var batch = [];
+          q.forEach(function(item) { batch = batch.concat(item.data); });
+          localStorage.removeItem('mkc_push_queue');
+          fetch('/api/leaderboard', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(batch)
+          }).catch(function() {
+            // Re-enqueue on failure
+            localStorage.setItem('mkc_push_queue', JSON.stringify(q));
+          });
+        } catch(e) {}
+      }
+    },
+
+    /** Try to flush any queued leaderboard pushes (call on app start) */
+    flushPendingPushes: function() {
+      try {
+        var q = JSON.parse(localStorage.getItem('mkc_push_queue') || '[]');
+        if (q.length > 0) {
+          var batch = [];
+          q.forEach(function(item) { batch = batch.concat(item.data); });
+          localStorage.removeItem('mkc_push_queue');
+          fetch('/api/leaderboard', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(batch)
+          }).catch(function() { /* will retry next game end */ });
+        }
+      } catch(e) {}
     },
 
     _myId: function() {
@@ -328,6 +396,9 @@
     }
   }
   _tryInject();
+
+  // Flush any queued leaderboard pushes from previous session
+  setTimeout(function() { MC.Leaderboard.flushPendingPushes(); }, 3000);
 
   console.log('[MKC] Leaderboard module loaded');
 })();

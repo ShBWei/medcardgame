@@ -27,6 +27,7 @@
         '<div class="screen" id="screen-battle"></div>' +
         '<div class="screen" id="screen-result"></div>' +
         '<div class="screen" id="screen-notebook"></div>' +
+        '<div class="screen" id="screen-study"></div>' +
         // Particle container for effects
         '<div class="particle-container" id="particles"></div>';
 
@@ -80,6 +81,17 @@
           case 'notebook':
             if (MediCard.ScreenNotebook && MediCard.ScreenNotebook.show) {
               MediCard.ScreenNotebook.show();
+            }
+            break;
+          case 'study':
+            if (MediCard.ScreenStudy && MediCard.ScreenStudy.render) {
+              MediCard.ScreenStudy.render();
+              // Restore server progress asynchronously
+              if (MediCard.ScreenStudy._restoreProgressFromServer) {
+                MediCard.ScreenStudy._restoreProgressFromServer(function() {
+                  MediCard.ScreenStudy.render();
+                });
+              }
             }
             break;
           case 'result':

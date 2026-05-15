@@ -135,7 +135,9 @@
 
     /* ============ Host: Create Room ============ */
     _reconnectAttempts: 0,
-    _maxReconnectAttempts: 3,
+    _maxReconnectAttempts: 5,
+    _reconnectBaseDelay: 1000,     // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+    _healthCheckInterval: null,   // Periodic ping to detect silent disconnects
 
     _createRoom(playerName, maxPlayers) {
       var self = this;
@@ -159,9 +161,11 @@
       console.log('[Lobby] Creating Peer, id=' + peerId + ', cfg=', JSON.stringify(cfg));
 
       try {
+        this._intentionallyDestroying = true;
         if (MediCard.NetworkHost._peer) {
           try { MediCard.NetworkHost._peer.destroy(); } catch(e) {}
         }
+        this._intentionallyDestroying = false;
         MediCard.NetworkHost._connections = [];
 
         MediCard.NetworkHost._peer = new Peer(peerId, {
@@ -195,18 +199,42 @@
         });
 
         MediCard.NetworkHost._peer.on('disconnected', function() {
+          if (self._intentionallyDestroying) return;
           self._reconnectAttempts++;
-          console.log('[Lobby] Peer disconnected, attempt ' + self._reconnectAttempts + '/' + self._maxReconnectAttempts);
+          console.log('[Lobby] Host Peer disconnected, attempt ' + self._reconnectAttempts + '/' + self._maxReconnectAttempts);
           if (self._reconnectAttempts <= self._maxReconnectAttempts &&
               MediCard.NetworkHost._peer && !MediCard.NetworkHost._peer.destroyed) {
-            MediCard.NetworkHost._peer.reconnect();
+            var delay = self._reconnectBaseDelay * Math.pow(2, self._reconnectAttempts - 1);
+            console.log('[Lobby] Reconnecting in ' + delay + 'ms...');
+            setTimeout(function() {
+              if (MediCard.NetworkHost._peer && !MediCard.NetworkHost._peer.destroyed) {
+                MediCard.NetworkHost._peer.reconnect();
+              }
+            }, delay);
           } else {
-            console.log('[Lobby] Max reconnect attempts reached, giving up');
+            console.log('[Lobby] Max reconnect attempts reached for host, giving up');
             try { MediCard.NetworkHost._peer.destroy(); } catch(e) {}
-            alert('联机连接已断开，无法重新连接到服务器。\n请检查服务器状态后重试。');
+            alert('联机连接已断开（重试' + self._maxReconnectAttempts + '次均失败）。\n请检查服务器状态后重试。');
             MediCard.GameState.goToScreen('title');
           }
         });
+
+        // ── Initialize relay transport for cross-network data fallback ──
+        this._relayReady = false;
+        MediCard.NetworkHost._relayReady = false;
+        var relay = MediCard.RelayTransport;
+        relay.on('open', function() {
+          self._relayReady = true;
+          MediCard.NetworkHost._relayReady = true;
+          console.log('[Lobby] Relay host ready for room', roomCode);
+        });
+        relay.on('data', function(msg) {
+          self._onRelayHostData(msg);
+        });
+        relay.on('error', function(err) {
+          console.warn('[Lobby] Relay host error:', err.message);
+        });
+        relay.connect(roomCode, peerId);
 
       } catch (e) {
         alert('联机初始化失败: ' + e.message);
@@ -267,6 +295,15 @@
       conn.on('error', function(err) {
         console.error('[Lobby] Host connection error:', err.type, err.message);
       });
+
+      // Periodic health ping: server-initiated keepalive for NAT binding + stale detection
+      var healthPing = setInterval(function() {
+        if (!conn.open) { clearInterval(healthPing); return; }
+        try {
+          conn.send(MediCard.SyncProtocol.pack(MediCard.SyncProtocol.MessageType.PING, {}));
+        } catch(e) { clearInterval(healthPing); }
+      }, 15000);
+      conn.on('close', function() { clearInterval(healthPing); });
     },
 
     _broadcastPlayers() {
@@ -278,6 +315,10 @@
       for (var i = 0; i < MediCard.NetworkHost._connections.length; i++) {
         var conn = MediCard.NetworkHost._connections[i];
         if (conn.open) conn.send(msg);
+      }
+      // Also broadcast via relay (cross-network fallback)
+      if (this._relayReady) {
+        MediCard.RelayTransport.send(msg);
       }
     },
 
@@ -297,9 +338,11 @@
       var clientId = 'medicard-' + roomCode + '-client-' + Math.random().toString(36).substr(2, 6);
 
       try {
+        this._intentionallyDestroying = true;
         if (MediCard.NetworkClient._peer) {
           try { MediCard.NetworkClient._peer.destroy(); } catch(e) {}
         }
+        this._intentionallyDestroying = false;
 
         MediCard.NetworkClient._peer = new Peer(clientId, {
           host: cfg.host, port: cfg.port, path: cfg.path, key: cfg.key, secure: cfg.secure,
@@ -325,18 +368,49 @@
         });
 
         MediCard.NetworkClient._peer.on('disconnected', function() {
+          if (self._intentionallyDestroying) return;
           self._reconnectAttempts++;
           console.log('[Lobby] Client Peer disconnected, attempt ' + self._reconnectAttempts + '/' + self._maxReconnectAttempts);
           if (self._reconnectAttempts <= self._maxReconnectAttempts &&
               MediCard.NetworkClient._peer && !MediCard.NetworkClient._peer.destroyed) {
-            MediCard.NetworkClient._peer.reconnect();
+            var delay = self._reconnectBaseDelay * Math.pow(2, self._reconnectAttempts - 1);
+            console.log('[Lobby] Client reconnecting in ' + delay + 'ms...');
+            setTimeout(function() {
+              if (MediCard.NetworkClient._peer && !MediCard.NetworkClient._peer.destroyed) {
+                MediCard.NetworkClient._peer.reconnect();
+              }
+            }, delay);
           } else {
             console.log('[Lobby] Max reconnect attempts reached for client');
             try { MediCard.NetworkClient._peer.destroy(); } catch(e) {}
-            alert('无法连接到联机服务器，请检查服务器状态后重试。');
+            alert('无法连接到联机服务器（重试' + self._maxReconnectAttempts + '次均失败）。\n请检查服务器状态后重试。');
             MediCard.GameState.goToScreen('title');
           }
         });
+
+        // ── Initialize relay transport for cross-network data fallback ──
+        this._relayReady = false;
+        this._dcOpened = false;
+        var relay = MediCard.RelayTransport;
+        relay.on('open', function() {
+          self._relayReady = true;
+          console.log('[Lobby] Relay client ready for room', roomCode);
+          // If DataChannel hasn't opened yet, send JOIN_REQUEST via relay immediately
+          if (!self._dcOpened) {
+            console.log('[Lobby] Sending JOIN_REQUEST via relay (DataChannel not open yet)');
+            relay.send(MediCard.SyncProtocol.pack(
+              MediCard.SyncProtocol.MessageType.JOIN_REQUEST,
+              { name: playerName, relayId: clientId }
+            ));
+          }
+        });
+        relay.on('data', function(msg) {
+          self._onRelayClientData(msg);
+        });
+        relay.on('error', function(err) {
+          console.warn('[Lobby] Relay client error:', err.message);
+        });
+        relay.connect(roomCode, clientId);
 
       } catch (e) {
         alert('联机初始化失败: ' + e.message);
@@ -350,18 +424,19 @@
       var _connectionOpened = false;
       var _connectionTimer = null;
 
-      // Connection timeout: 15 seconds
+      // Connection timeout: 30 seconds (cross-network ICE gathering can be slow)
       _connectionTimer = setTimeout(function() {
         if (!_connectionOpened) {
           try { conn.close(); } catch(e) {}
-          alert('连接房主超时，请确认：\n1. 房间号输入正确\n2. 房主仍在房间中\n3. 网络连接正常');
+          alert('连接房主超时（30秒），请确认：\n1. 房间号输入正确\n2. 房主仍在房间中\n3. 双方网络均能访问服务器\n\n提示：不同网络下P2P连接需要更长时间建立');
           self._cleanupNetwork();
           MediCard.GameState.goToScreen('lobby');
         }
-      }, 15000);
+      }, 30000);
 
       conn.on('open', function() {
         _connectionOpened = true;
+        self._dcOpened = true;
         if (_connectionTimer) { clearTimeout(_connectionTimer); _connectionTimer = null; }
         conn.send(MediCard.SyncProtocol.pack(
           MediCard.SyncProtocol.MessageType.JOIN_REQUEST,
@@ -438,6 +513,15 @@
           MediCard.GameState.goToScreen('lobby');
         }
       });
+
+      // Periodic health ping: keep NAT binding alive + detect stale connections
+      var healthPing = setInterval(function() {
+        if (!conn.open) { clearInterval(healthPing); return; }
+        try {
+          conn.send(MediCard.SyncProtocol.pack(MediCard.SyncProtocol.MessageType.PING, {}));
+        } catch(e) { clearInterval(healthPing); }
+      }, 15000);
+      conn.on('close', function() { clearInterval(healthPing); });
     },
 
     /* ============ UI Rendering ============ */
@@ -657,7 +741,16 @@
       for (var ci = 0; ci < MediCard.NetworkHost._connections.length; ci++) {
         var conn = MediCard.NetworkHost._connections[ci];
         if (!conn.open) continue;
-        var clientIdx = 1 + ci;  // host is 0, client 1, 2, 3, 4
+        // Map connection index to player index, skipping AI players
+        var clientIdx = -1;
+        var _nonAiCnt = 0;
+        for (var _pi = 1; _pi < players.length; _pi++) {
+          if (!players[_pi].isAI) {
+            if (_nonAiCnt === ci) { clientIdx = _pi; break; }
+            _nonAiCnt++;
+          }
+        }
+        if (clientIdx < 0) continue; // safety: skip if mapping fails
         conn.send(MediCard.SyncProtocol.pack(
           MediCard.SyncProtocol.MessageType.GAME_START,
           {
@@ -688,6 +781,45 @@
             })
           }
         ));
+      }
+
+      // Also broadcast GAME_START via relay for clients without DataChannel
+      if (this._relayReady) {
+        for (var ri = 0; ri < players.length; ri++) {
+          var rp = players[ri];
+          if (rp.isHost || rp.isAI) continue;
+          var riPack = MediCard.SyncProtocol.pack(
+            MediCard.SyncProtocol.MessageType.GAME_START,
+            {
+              yourIndex: ri,
+              totalPlayers: players.length,
+              deckCount: deck.length,
+              players: players.map(function(p, pi) {
+                var isMe = pi === ri;
+                return {
+                  name: p.name,
+                  identity: (pi === 0 || isMe) ? p.identity : null,
+                  identityRevealed: (pi === 0 || isMe),
+                  identityInfo: (pi === 0 || isMe) ? MediCard.IdentityData.getIdentityInfo(p.identity) : null,
+                  resources: {
+                    hp: { current: p.resources.hp.current, max: p.resources.hp.max },
+                    mp: { current: p.resources.mp.current, max: p.resources.mp.max },
+                    kp: { current: p.resources.kp.current, max: p.resources.kp.max },
+                    alive: true
+                  },
+                  handCount: p.hand.length,
+                  alive: true,
+                  isHost: p.isHost,
+                  isAI: !!p.isAI,
+                  aiDifficulty: p.aiDifficulty || 'normal',
+                  equipment: p.equipment,
+                  hand: isMe ? p.hand.slice() : []
+                };
+              })
+            }
+          );
+          MediCard.RelayTransport.send(riPack);
+        }
       }
 
       if (this._startPoll) clearInterval(this._startPoll);
@@ -750,8 +882,97 @@
       MediCard.UI.startGame();
     },
 
+    /* ============ Relay Message Handlers (cross-network fallback) ============ */
+
+    /** Host: handle relay data from clients */
+    _onRelayHostData: function(msg) {
+      var M = MediCard.SyncProtocol.MessageType;
+      var data = MediCard.SyncProtocol.unpack(msg.payload);
+      if (!data) return;
+      var fromId = msg.from;
+
+      switch (data.t) {
+        case M.JOIN_REQUEST:
+          var name = data.d.name || 'Guest';
+          if (MediCard.RoomManager.addPlayer(name, fromId, fromId)) {
+            MediCard.RelayTransport.sendTo(fromId, MediCard.SyncProtocol.pack(
+              M.JOIN_ACCEPT, { roomCode: this._roomCode, players: MediCard.RoomManager.players,
+                maxPlayers: this._maxPlayers, selectedSubjects: MediCard.GameState.selectedSubjects.slice() }
+            ));
+            this._players = MediCard.RoomManager.players.slice();
+            this._renderPlayerSlots();
+            this._broadcastPlayers();
+          } else {
+            MediCard.RelayTransport.sendTo(fromId, MediCard.SyncProtocol.pack(
+              M.JOIN_REJECT, { reason: '房间已满（' + MediCard.RoomManager.maxPlayers + '人）' }
+            ));
+          }
+          break;
+
+        case M.PLAYER_READY:
+          MediCard.RoomManager.setPlayerReady(fromId);
+          this._players = MediCard.RoomManager.players.slice();
+          this._renderPlayerSlots();
+          this._broadcastPlayers();
+          break;
+
+        case M.PING:
+          MediCard.RelayTransport.sendTo(fromId, MediCard.SyncProtocol.pack(M.PONG, {}));
+          break;
+      }
+    },
+
+    /** Client: handle relay data from host */
+    _onRelayClientData: function(msg) {
+      var M = MediCard.SyncProtocol.MessageType;
+      var data = MediCard.SyncProtocol.unpack(msg.payload);
+      if (!data) return;
+
+      switch (data.t) {
+        case M.JOIN_ACCEPT:
+          this._roomCode = data.d.roomCode;
+          this._players = data.d.players || [];
+          this._maxPlayers = data.d.maxPlayers || 2;
+          if (data.d.selectedSubjects && data.d.selectedSubjects.length > 0) {
+            MediCard.GameState.setSelectedSubjects(data.d.selectedSubjects);
+            MediCard.QuestionLoader.init(data.d.selectedSubjects);
+          }
+          this._showRoomPanel();
+          this._renderPlayerSlots();
+          break;
+
+        case M.JOIN_REJECT:
+          alert('加入失败: ' + data.d.reason);
+          this._cleanupNetwork();
+          MediCard.GameState.goToScreen('lobby');
+          break;
+
+        case M.FULL_STATE:
+          if (data.d.type === 'players') {
+            this._players = data.d.players;
+            this._maxPlayers = data.d.maxPlayers || this._maxPlayers;
+            this._renderPlayerSlots();
+          } else if (data.d.type === 'subjects') {
+            if (data.d.subjects && data.d.subjects.length > 0) {
+              MediCard.GameState.setSelectedSubjects(data.d.subjects);
+              MediCard.QuestionLoader.init(data.d.subjects);
+            }
+          }
+          break;
+
+        case M.GAME_START:
+          this._onGameStartAsClient(data.d);
+          break;
+
+        case M.PING:
+          MediCard.RelayTransport.send(MediCard.SyncProtocol.pack(M.PONG, {}));
+          break;
+      }
+    },
+
     /* ============ Helpers ============ */
     _cleanupNetwork() {
+      this._intentionallyDestroying = true;
       if (MediCard.NetworkHost && MediCard.NetworkHost._peer) {
         try { MediCard.NetworkHost._peer.destroy(); } catch(e) {}
         MediCard.NetworkHost._peer = null;
@@ -760,6 +981,13 @@
         try { MediCard.NetworkClient._peer.destroy(); } catch(e) {}
         MediCard.NetworkClient._peer = null;
       }
+      this._intentionallyDestroying = false;
+      // Close relay transport
+      if (MediCard.RelayTransport && MediCard.RelayTransport.isOpen()) {
+        MediCard.RelayTransport.close();
+      }
+      this._relayReady = false;
+      if (MediCard.NetworkHost) MediCard.NetworkHost._relayReady = false;
       MediCard.RoomManager.reset();
     }
   };

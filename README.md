@@ -27,7 +27,8 @@
 - **前端**：HTML5 + CSS3 + Vanilla JavaScript（模块化架构）
 - **联机**：PeerJS (WebRTC P2P)
 - **构建**：Node.js 构建脚本，开发时模块化 → 构建合并为单文件
-- **部署**：纯静态文件，可部署到 GitHub Pages / 任意静态服务器
+- **部署**：纯静态文件，可部署到 Cloudflare Pages / GitHub Pages / 任意静态服务器
+- **加速**：内置 Speed Engine v2（HTML预构建缓存 + 事件委托 + Web Worker导出）
 
 ## 快速开始
 
@@ -48,6 +49,34 @@ npx serve .
 npm run build
 # 输出到 dist/index.html
 ```
+
+## ☁️ Cloudflare Pages 部署（推荐）
+
+### 一键部署（2步）
+
+**第 1 步**：在 [Cloudflare Pages](https://dash.cloudflare.com/pages) 后台点击「连接到 Git」，选择此仓库。
+
+**第 2 步**：配置全部使用默认值，点击「保存并部署」：
+- **构建命令**：留空（纯静态站点无需构建）
+- **输出目录**：`/`（根目录）
+- **框架预设**：无
+
+部署完成后，网站地址为：`https://你的项目名.pages.dev`
+
+### 后续更新
+
+修改代码并推送到 GitHub `main` 分支，Cloudflare Pages 自动重新部署。
+
+```bash
+git add . && git commit -m "描述你的修改" && git push
+```
+
+### 重要说明
+
+- ✅ **单人练习、刷题工坊、错题本**：完全可用（本地存储）
+- ✅ **主题切换、加速引擎**：完全可用
+- ⚠️ **多人联机**：需要 PeerJS 信令服务器（已配置免费中继）
+- ⚠️ **账号同步**：API 调用会静默失败，不影响核心功能
 
 ## 项目结构
 

@@ -1,0 +1,36 @@
+# Cloudflare Pages — HTTP Headers for optimal caching
+# ==================================================
+
+# HTML: no cache (always get latest)
+/index.html
+  Cache-Control: no-cache, must-revalidate
+
+# JavaScript modules: cache 1 week (versioned via ?v= query strings)
+/src/modules/**/*.js
+  Cache-Control: public, max-age=604800
+
+# CSS files: cache 1 week
+/src/css/**/*.css
+  Cache-Control: public, max-age=604800
+
+# Question bank data files: cache 1 month (rarely change)
+/src/modules/question-bank/subjects/*.js
+  Cache-Control: public, max-age=2592000
+
+# External libraries: cache 1 month
+/src/lib/*.js
+  Cache-Control: public, max-age=2592000
+
+# Service Worker: no cache
+/sw.js
+  Cache-Control: no-cache, must-revalidate
+
+# Redirects file: no cache
+/_redirects
+  Cache-Control: no-cache
+
+# Security headers for all pages
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin

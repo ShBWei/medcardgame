@@ -31,7 +31,7 @@
     },
 
     goToScreen(screen) {
-      const validScreens = ['auth', 'title', 'lobby', 'subject', 'playing', 'result'];
+      const validScreens = ['auth', 'title', 'lobby', 'subject', 'playing', 'result', 'study'];
       if (!validScreens.includes(screen)) return;
       this.screen = screen;
       if (MediCard.UI && MediCard.UI.showScreen) {

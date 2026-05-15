@@ -95,6 +95,15 @@
       typeEl.textContent = (typeInfo ? typeInfo.icon + ' ' + typeInfo.name : '') + ' · ' + (card.cardName || '');
       content.appendChild(typeEl);
 
+      // Multi-select indicator
+      var isMultiSelect = card.questionType === 'multiple';
+      if (isMultiSelect) {
+        var multiHint = document.createElement('div');
+        multiHint.style.cssText = 'text-align:center;font-size:13px;font-weight:700;color:#fbbf24;margin-bottom:8px;padding:6px;background:rgba(251,191,36,0.1);border-radius:6px;border:1px solid rgba(251,191,36,0.3);';
+        multiHint.textContent = '⚠️ 多选题 — 选择所有正确答案后提交';
+        content.appendChild(multiHint);
+      }
+
       // Options — shuffle to randomize answer order
       var optionsEl = document.createElement('div');
       optionsEl.style.cssText = 'display:flex;flex-direction:column;gap:8px;';
@@ -123,6 +132,7 @@
         return { letter: newLetter, text: opt.text, display: display };
       });
       var answered = false;
+      var selectedAnswers = {};  // letter -> true for multi-select
 
       options.forEach(function(opt, idx) {
         var btn = document.createElement('button');
@@ -131,78 +141,119 @@
         btn.textContent = opt.display;
         btn.setAttribute('data-answer-letter', opt.letter);
 
-        btn.addEventListener('click', function() {
+        if (isMultiSelect) {
+          // Multi-select: toggle selection, submit via dedicated button
+          btn.addEventListener('click', function() {
+            if (answered) return;
+            var letter = opt.letter;
+            if (selectedAnswers[letter]) {
+              delete selectedAnswers[letter];
+              btn.classList.remove('btn-selected');
+              btn.style.background = '';
+              btn.style.borderColor = '';
+              btn.style.color = '';
+            } else {
+              selectedAnswers[letter] = true;
+              btn.classList.add('btn-selected');
+              btn.style.background = 'rgba(6,182,212,0.25)';
+              btn.style.borderColor = '#06b6d4';
+              btn.style.color = '#67e8f9';
+            }
+            // Show/hide submit button based on selection count
+            var submitBtn = document.getElementById('multi-submit-btn');
+            var selectedCount = Object.keys(selectedAnswers).length;
+            if (submitBtn) {
+              submitBtn.style.display = selectedCount > 0 ? '' : 'none';
+              submitBtn.textContent = '提交答案（已选' + selectedCount + '项）';
+            }
+          });
+        } else {
+          // Single-select: immediate answer on click
+          btn.addEventListener('click', function() {
+            if (answered) return;
+            answered = true;
+            MediCard.TimerComponent.stop();
+
+            var choice = opt.letter;
+            var isCorrect = newCorrectAnswers.indexOf(choice) >= 0;
+
+            // Visual feedback
+            if (isCorrect) {
+              btn.classList.remove('btn-secondary');
+              btn.style.background = 'rgba(16,185,129,0.3)';
+              btn.style.borderColor = '#10b981';
+              btn.style.color = '#6ee7b7';
+            } else {
+              btn.classList.remove('btn-secondary');
+              btn.style.background = 'rgba(239,68,68,0.3)';
+              btn.style.borderColor = '#ef4444';
+              btn.style.color = '#fca5a5';
+              // Highlight correct answer
+              optionsEl.querySelectorAll('button').forEach(function(b) {
+                var dataLetter = b.getAttribute('data-answer-letter');
+                if (dataLetter && newCorrectAnswers.indexOf(dataLetter) >= 0) {
+                  b.style.background = 'rgba(16,185,129,0.2)';
+                  b.style.borderColor = '#10b981';
+                }
+              });
+            }
+
+            _showAnswerFeedback(optionsEl, isCorrect, card, overlay, onAnswer, choice, answererLabel);
+
+            // Play feedback sound
+            if (MediCard.Audio) {
+              isCorrect ? MediCard.Audio.playCorrect() : MediCard.Audio.playWrong();
+            }
+          });
+        }
+
+        optionsEl.appendChild(btn);
+      });
+
+      // Multi-select: add submit button
+      if (isMultiSelect) {
+        var submitBtn = document.createElement('button');
+        submitBtn.id = 'multi-submit-btn';
+        submitBtn.className = 'btn btn-primary';
+        submitBtn.style.cssText = 'margin-top:12px;width:100%;display:none;';
+        submitBtn.textContent = '提交答案';
+        submitBtn.addEventListener('click', function() {
           if (answered) return;
           answered = true;
           MediCard.TimerComponent.stop();
 
-          var choice = opt.letter;
-          var isCorrect = newCorrectAnswers.indexOf(choice) >= 0;
-
-          // Visual feedback
-          if (isCorrect) {
-            btn.classList.remove('btn-secondary');
-            btn.style.background = 'rgba(16,185,129,0.3)';
-            btn.style.borderColor = '#10b981';
-            btn.style.color = '#6ee7b7';
-          } else {
-            btn.classList.remove('btn-secondary');
-            btn.style.background = 'rgba(239,68,68,0.3)';
-            btn.style.borderColor = '#ef4444';
-            btn.style.color = '#fca5a5';
-            // Highlight correct answer
-            optionsEl.querySelectorAll('button').forEach(function(b) {
-              var dataLetter = b.getAttribute('data-answer-letter');
-              if (dataLetter && newCorrectAnswers.indexOf(dataLetter) >= 0) {
-                b.style.background = 'rgba(16,185,129,0.2)';
-                b.style.borderColor = '#10b981';
-              }
-            });
+          var selectedLetters = Object.keys(selectedAnswers);
+          // Multi-select correctness: all selected must be correct AND all correct must be selected
+          var allCorrectSelected = true;
+          for (var s = 0; s < selectedLetters.length; s++) {
+            if (newCorrectAnswers.indexOf(selectedLetters[s]) < 0) { allCorrectSelected = false; break; }
           }
+          var allSelected = newCorrectAnswers.every(function(c) { return selectedAnswers[c]; });
+          var isCorrect = allCorrectSelected && allSelected;
 
-          // Explanation
-          var exp = document.createElement('div');
-          exp.style.cssText = 'margin-top:12px;padding:10px;background:rgba(0,0,0,0.2);border-radius:6px;font-size:12px;color:var(--text-secondary);line-height:1.5;';
-          exp.innerHTML = '<strong>' + (isCorrect ? '✅ 回答正确！' : '❌ 回答错误') + '</strong><br>' +
-            (card.explanation || '') +
-            (card.textbookReference ? '<br><span style="color:var(--text-muted);font-size:10px;">📖 ' + card.textbookReference + '</span>' : '');
-          optionsEl.appendChild(exp);
-
-          // Continue button
-          var contBtn = document.createElement('button');
-          contBtn.className = 'btn btn-primary';
-          contBtn.style.cssText = 'margin-top:12px;width:100%;';
-          contBtn.textContent = '继续';
-          contBtn.addEventListener('click', function() {
-            overlay.remove();
-            if (onAnswer) onAnswer({ correct: isCorrect, choice: choice, card: card });
+          // Visual feedback on all buttons
+          optionsEl.querySelectorAll('button[data-answer-letter]').forEach(function(b) {
+            var dataLetter = b.getAttribute('data-answer-letter');
+            b.disabled = true;
+            if (newCorrectAnswers.indexOf(dataLetter) >= 0) {
+              b.style.background = 'rgba(16,185,129,0.2)';
+              b.style.borderColor = '#10b981';
+            } else if (selectedAnswers[dataLetter]) {
+              b.style.background = 'rgba(239,68,68,0.3)';
+              b.style.borderColor = '#ef4444';
+              b.style.color = '#fca5a5';
+            }
           });
-          optionsEl.appendChild(contBtn);
+          submitBtn.style.display = 'none';
 
-          // Bookmark button — also shown below
-          var showBookmark = !answererLabel || answererLabel === '你' || answererLabel === '自己';
-          if (showBookmark && card.id && MediCard.WrongQuestionBook) {
-            var bmBtn = document.createElement('button');
-            bmBtn.className = 'btn btn-ghost btn-sm';
-            bmBtn.style.cssText = 'margin-top:8px;width:100%;font-size:11px;color:var(--text-muted);';
-            var isBm = MediCard.WrongQuestionBook.isBookmarked(card.id);
-            bmBtn.textContent = isBm ? '⭐ 已收藏' : '☆ 收藏此题';
-            bmBtn.addEventListener('click', function(e) {
-              e.stopPropagation();
-              var nowBm = MediCard.WrongQuestionBook.toggleBookmark(card.id);
-              bmBtn.textContent = nowBm ? '⭐ 已收藏' : '☆ 收藏此题';
-            });
-            optionsEl.appendChild(bmBtn);
-          }
+          _showAnswerFeedback(optionsEl, isCorrect, card, overlay, onAnswer, selectedLetters.join(','), answererLabel);
 
-          // Play feedback sound
           if (MediCard.Audio) {
             isCorrect ? MediCard.Audio.playCorrect() : MediCard.Audio.playWrong();
           }
         });
-
-        optionsEl.appendChild(btn);
-      });
+        optionsEl.appendChild(submitBtn);
+      }
 
       // Timer
       var timerStarted = false;
@@ -323,6 +374,43 @@
       document.querySelectorAll('.modal-overlay').forEach(function(el) { el.remove(); });
     }
   };
+
+  /** Shared answer feedback: explanation + continue + bookmark */
+  function _showAnswerFeedback(optionsEl, isCorrect, card, overlay, onAnswer, choice, answererLabel) {
+    var exp = document.createElement('div');
+    exp.style.cssText = 'margin-top:12px;padding:10px;background:rgba(0,0,0,0.2);border-radius:6px;font-size:12px;color:var(--text-secondary);line-height:1.5;';
+    var correctStr = (card.correctAnswers || []).join('、');
+    exp.innerHTML = '<strong>' + (isCorrect ? '✅ 回答正确！' : '❌ 回答错误') + '</strong>' +
+      (!isCorrect ? ' <span style="color:#fbbf24;">正确答案：' + correctStr + '</span>' : '') +
+      '<br>' + (card.explanation || '') +
+      (card.textbookReference ? '<br><span style="color:var(--text-muted);font-size:10px;">📖 ' + card.textbookReference + '</span>' : '');
+    optionsEl.appendChild(exp);
+
+    var contBtn = document.createElement('button');
+    contBtn.className = 'btn btn-primary';
+    contBtn.style.cssText = 'margin-top:12px;width:100%;';
+    contBtn.textContent = '继续';
+    contBtn.addEventListener('click', function() {
+      overlay.remove();
+      if (onAnswer) onAnswer({ correct: isCorrect, choice: choice, card: card });
+    });
+    optionsEl.appendChild(contBtn);
+
+    var showBookmark = !answererLabel || answererLabel === '你' || answererLabel === '自己';
+    if (showBookmark && card.id && MediCard.WrongQuestionBook) {
+      var bmBtn = document.createElement('button');
+      bmBtn.className = 'btn btn-ghost btn-sm';
+      bmBtn.style.cssText = 'margin-top:8px;width:100%;font-size:11px;color:var(--text-muted);';
+      var isBm = MediCard.WrongQuestionBook.isBookmarked(card.id);
+      bmBtn.textContent = isBm ? '⭐ 已收藏' : '☆ 收藏此题';
+      bmBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var nowBm = MediCard.WrongQuestionBook.toggleBookmark(card.id);
+        bmBtn.textContent = nowBm ? '⭐ 已收藏' : '☆ 收藏此题';
+      });
+      optionsEl.appendChild(bmBtn);
+    }
+  }
 
   // Handle flagging a question from battle
   function _handleFlagQuestion(card) {

@@ -9,8 +9,8 @@ Thumbs.db
 # Raw question bank source (already extracted to src/)
 *题库*.txt
 
-# Question bank subject files (large, proprietary content)
-src/modules/question-bank/subjects/*.js
+# Question bank subject files (required for Cloudflare Pages)
+# src/modules/question-bank/subjects/*.js — UNIGNORED: needed for static deployment
 
 # Dev tools (only keep build.js)
 tools/
@@ -36,3 +36,25 @@ vitest.config.js
 # Temp/test pages
 diag.html
 peerjs-test.html
+
+# Project audit / temporary files
+PROJECT_AUDIT_REPORT.md
+non-essential-backup.tar.gz
+*.tar.gz
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+server.log
+
+# Environment
+.env
+.env.local
+.env.production

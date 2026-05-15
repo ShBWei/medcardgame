@@ -33,12 +33,20 @@
       return this.roomCode;
     },
 
-    addPlayer(name, peerId) {
+    addPlayer(name, peerId, relayId) {
       if (this.players.length >= this.maxPlayers) return false;
+      // Dedup: skip if player already added (e.g., via relay before DataChannel)
+      for (var i = 0; i < this.players.length; i++) {
+        var p = this.players[i];
+        if (p.peerId === peerId || (relayId && p.relayId === relayId) || p.peerId === relayId) {
+          return false;
+        }
+      }
       this.players.push({
         id: 'player_' + (this.players.length + 1),
         name: name,
         peerId: peerId,
+        relayId: relayId || peerId,
         ready: false,
         isHost: false
       });
