@@ -1,0 +1,15 @@
+# MediCard Cloud API — Cloudflare Worker + D1
+name = "medcard-api"
+main = "workers/api/worker.js"
+compatibility_date = "2026-05-16"
+compatibility_flags = ["nodejs_compat"]
+
+# D1 Database binding
+[[d1_databases]]
+binding = "DB"
+database_name = "medcard-db"
+database_id = "medcard-db"
+
+# Observability (free tier)
+[observability]
+enabled = true
