@@ -19,9 +19,11 @@
       this._removeOverlay();
       var self = this;
       this._mode = 'view';
+      this._activeTab = 'wrong'; // 'wrong' | 'bookmark'
 
       var totalWrong = MediCard.WrongQuestionBook.getCount('wrong');
-      if (totalWrong === 0) {
+      var totalBookmark = MediCard.WrongQuestionBook.getCount('bookmark');
+      if (totalWrong === 0 && totalBookmark === 0) {
         this._showEmpty();
         return;
       }
@@ -33,14 +35,92 @@
 
       var content = document.createElement('div');
       content.className = 'ntb-modal';
-      content.style.cssText = 'max-width:560px;width:95%;max-height:85vh;overflow-y:auto;animation:modalEnter 250ms ease-out;';
+      content.style.cssText = 'max-width:720px;width:96%;max-height:90vh;overflow-y:auto;animation:modalEnter 250ms ease-out;border-radius:16px;';
 
       content.innerHTML = this._renderHTML();
       overlay.appendChild(content);
       document.body.appendChild(overlay);
 
       overlay.addEventListener('click', function(e) { if (e.target === overlay) self.close(); });
-      setTimeout(function() { self._attachEvents(content); }, 50);
+      setTimeout(function() {
+        self._attachEvents(content);
+        // Kick off async loading for uncached subjects
+        self._ensureSubjectsLoaded();
+      }, 50);
+    },
+
+    /** Ensure all subjects with wrong/bookmarked questions are loaded */
+    _ensureSubjectsLoaded: function() {
+      var loader = MediCard.QuestionLoader;
+      if (!loader) return;
+      var allIds = [];
+      var wrongIds = MediCard.WrongQuestionBook.getAll('wrong');
+      var bookmarkIds = MediCard.WrongQuestionBook.getAll('bookmark');
+      for (var i = 0; i < wrongIds.length; i++) allIds.push(wrongIds[i]);
+      for (var j = 0; j < bookmarkIds.length; j++) allIds.push(bookmarkIds[j]);
+
+      var neededSubjects = {};
+      for (var k = 0; k < allIds.length; k++) {
+        var subj = MediCard.WrongQuestionBook._subjectFromId(allIds[k]);
+        if (subj && subj !== 'unknown') neededSubjects[subj] = true;
+      }
+
+      var self = this;
+      var subjectList = Object.keys(neededSubjects);
+      var loadedCount = 0;
+      for (var s = 0; s < subjectList.length; s++) {
+        if (loader._loadedSubjects.has(subjectList[s])) {
+          loadedCount++;
+        } else {
+          loader.loadSubject(subjectList[s]);
+        }
+      }
+
+      // If all already cached, instantly refresh question list
+      if (loadedCount === subjectList.length) {
+        this._refreshQuestionList();
+      } else {
+        // Wait for loads to complete, then refresh
+        loader.onReady(function() {
+          self._refreshQuestionList();
+        });
+      }
+    },
+
+    /** Refresh the question list in-place after subjects load */
+    _refreshQuestionList: function() {
+      var qlist = document.getElementById('ntb-qlist');
+      if (!qlist) return;
+      var groups = MediCard.WrongQuestionBook.getBySubject(this._activeTab);
+      var subjects = Object.keys(groups).sort();
+      var firstSubj = subjects[0] || '';
+      qlist.innerHTML = this._renderQuestionList(firstSubj, groups[firstSubj] || []);
+      this._attachQuestionCards(qlist);
+      this._updateTabCounts();
+    },
+
+    _updateTabCounts: function() {
+      var content = this._overlay ? this._overlay.querySelector('.ntb-modal') : null;
+      if (!content) return;
+      var wrongGroups = MediCard.WrongQuestionBook.getBySubject('wrong');
+      var bookmarkGroups = MediCard.WrongQuestionBook.getBySubject('bookmark');
+      var wrongTotal = MediCard.WrongQuestionBook.getCount('wrong');
+      var bookmarkTotal = MediCard.WrongQuestionBook.getCount('bookmark');
+
+      var wrongTab = content.querySelector('.ntb-tab-btn[data-tab="wrong"]');
+      var bookmarkTab = content.querySelector('.ntb-tab-btn[data-tab="bookmark"]');
+      if (wrongTab) wrongTab.innerHTML = '❌ 错题 <span class="ntb-tab-count">' + wrongTotal + '</span>';
+      if (bookmarkTab) bookmarkTab.innerHTML = '⭐ 收藏 <span class="ntb-tab-count">' + bookmarkTotal + '</span>';
+
+      // Update subject tab counts
+      var tabCounts = this._activeTab === 'bookmark' ? bookmarkGroups : wrongGroups;
+      content.querySelectorAll('.ntb-subj-tab').forEach(function(tab) {
+        var subj = tab.getAttribute('data-subj');
+        var count = tabCounts[subj] ? tabCounts[subj].length : 0;
+        var countEl = tab.querySelector('.ntb-subj-count');
+        if (countEl) countEl.textContent = count;
+        tab.style.display = count > 0 ? '' : 'none';
+      });
     },
 
     close: function() {
@@ -89,9 +169,12 @@
 
     _renderHTML: function() {
       var self = this;
-      var groups = MediCard.WrongQuestionBook.getBySubject('wrong');
+      var tab = this._activeTab || 'wrong';
+      var groups = MediCard.WrongQuestionBook.getBySubject(tab);
       var meta = MediCard.Config.subjectMeta || {};
-      var totalCount = MediCard.WrongQuestionBook.getCount('wrong');
+      var totalWrong = MediCard.WrongQuestionBook.getCount('wrong');
+      var totalBookmark = MediCard.WrongQuestionBook.getCount('bookmark');
+      var totalCount = tab === 'bookmark' ? totalBookmark : totalWrong;
 
       if (this._mode === 'test') return this._renderTestHTML();
 
@@ -102,7 +185,8 @@
         var subj = subjects[s];
         var m = meta[subj] || {};
         tabsHtml += '<button class="ntb-subj-tab' + (s === 0 ? ' active' : '') + '" data-subj="' + _esc(subj) + '">' +
-          (m.icon || '📚') + ' ' + (m.name || subj) + ' <span class="ntb-subj-count">' + groups[subj].length + '</span>' +
+          (m.icon || '📚') + ' <span class="ntb-subj-name">' + (m.name || subj) + '</span> ' +
+          '<span class="ntb-subj-count">' + groups[subj].length + '</span>' +
           '</button>';
       }
 
@@ -112,11 +196,15 @@
 
       return '' +
         '<div class="ntb-header">' +
-          '<h3>📝 错题本 <span style="font-size:12px;color:var(--text-muted);font-weight:400;">共' + totalCount + '题</span></h3>' +
-          '<div style="display:flex;gap:8px;">' +
-            '<button class="btn btn-sm" id="ntb-mode-toggle" style="background:#fbbf24;color:#000;">🧪 自测模式</button>' +
-            '<button class="btn btn-ghost btn-sm" id="ntb-close">✕</button>' +
+          '<h3 style="margin:0;font-size:clamp(17px,4.5vw,20px);">📝 错题本</h3>' +
+          '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+            '<button class="btn btn-sm" id="ntb-mode-toggle" style="background:#fbbf24;color:#000;min-height:40px;">🧪 自测</button>' +
+            '<button class="btn btn-ghost btn-sm" id="ntb-close" style="min-height:40px;min-width:40px;">✕</button>' +
           '</div>' +
+        '</div>' +
+        '<div class="ntb-main-tabs">' +
+          '<button class="ntb-tab-btn' + (tab === 'wrong' ? ' active' : '') + '" data-tab="wrong">❌ 错题 <span class="ntb-tab-count">' + totalWrong + '</span></button>' +
+          '<button class="ntb-tab-btn' + (tab === 'bookmark' ? ' active' : '') + '" data-tab="bookmark">⭐ 收藏 <span class="ntb-tab-count">' + totalBookmark + '</span></button>' +
         '</div>' +
         '<div class="ntb-subj-tabs" id="ntb-tabs">' + tabsHtml + '</div>' +
         '<div class="ntb-question-list" id="ntb-qlist">' + questionListHtml + '</div>';
@@ -124,69 +212,91 @@
 
     _renderQuestionList: function(subjName, ids) {
       if (!ids || ids.length === 0) {
-        return '<div class="ntb-empty-subj">该科目暂无错题</div>';
+        return '<div class="ntb-empty-subj">暂无题目</div>';
       }
 
       var meta = MediCard.Config.subjectMeta || {};
       var m = meta[subjName] || {};
+      var isLoaded = MediCard.QuestionLoader && MediCard.QuestionLoader._loadedSubjects.has(subjName);
+
       var html = '<div class="ntb-subj-header">' +
         '<span class="ntb-subj-title">' + (m.icon || '📚') + ' ' + (m.name || subjName) + '</span>' +
         '<span class="ntb-subj-count">' + ids.length + '题</span>' +
+        (isLoaded ? '' : ' <span class="ntb-loading-tag">加载中...</span>') +
         '</div>';
 
-      // Load questions and render
+      // Use indexed lookup for loaded subjects, temp placeholder for unloaded
       var loader = MediCard.QuestionLoader;
-      var questions = loader && loader.getSubject ? loader.getSubject(subjName) : null;
+      var questions = (loader && loader._cache[subjName]) ? loader._cache[subjName] : null;
 
       for (var i = 0; i < ids.length; i++) {
         var qid = ids[i];
+        // Try index first (O(1)), fall back to linear scan
         var q = null;
         if (questions) {
-          for (var j = 0; j < questions.length; j++) {
-            if (questions[j].id === qid) { q = questions[j]; break; }
+          var entry = loader._questionIndex[qid];
+          if (entry && entry.subjectId === subjName) {
+            q = questions[entry.index];
+            if (!q || (q.id !== qid && q.cardId !== qid)) q = null;
+          }
+          if (!q) {
+            // Fallback linear scan
+            for (var j = 0; j < questions.length; j++) {
+              if (questions[j].id === qid || questions[j].cardId === qid) {
+                q = questions[j]; break;
+              }
+            }
           }
         }
 
         html += '<div class="ntb-q-card" data-qid="' + _esc(qid) + '" data-subj="' + _esc(subjName) + '">';
         html += '<div class="ntb-q-header">';
         html += '<span class="ntb-q-num">#' + (i + 1) + '</span>';
-        html += '<span class="ntb-q-text">' + _esc(q ? (q.question || q.q || qid) : qid) + '</span>';
+        html += '<span class="ntb-q-text">' + _esc(q ? (q.question || q.q || '') : (isLoaded ? '(题目未找到)' : '加载中...')) + '</span>';
         html += '<span class="ntb-q-toggle">▼</span>';
         html += '</div>';
         html += '<div class="ntb-q-detail" style="display:none;">';
         if (q) {
-          var opts = q.options || q.opts || [];
-          var correct = q.correctAnswers || q.ans || [];
-          var correctSet = {};
-          for (var ci = 0; ci < correct.length; ci++) correctSet[correct[ci]] = true;
-
-          html += '<div class="ntb-options">';
-          var labels = ['A', 'B', 'C', 'D', 'E'];
-          for (var oi = 0; oi < opts.length; oi++) {
-            var isCorrect = correctSet[oi] || correctSet[String(oi)] || correctSet[labels[oi]];
-            html += '<div class="ntb-option' + (isCorrect ? ' correct' : '') + '">' +
-              '<span class="ntb-opt-label">' + labels[oi] + '</span> ' + _esc(opts[oi]) +
-              (isCorrect ? ' ✓' : '') +
-              '</div>';
-          }
-          html += '</div>';
-
-          if (q.explanation || q.exp) {
-            html += '<div class="ntb-explanation">💡 ' + _esc(q.explanation || q.exp) + '</div>';
-          }
-          if (q.knowledgePoint || q.kp) {
-            html += '<div class="ntb-kp">📖 知识点：' + _esc(q.knowledgePoint || q.kp) + '</div>';
-          }
-          if (q.textbookReference || q.ref) {
-            html += '<div class="ntb-kp">📚 参考：' + _esc(q.textbookReference || q.ref) + '</div>';
-          }
+          html += this._renderQuestionDetail(q);
+        } else if (isLoaded) {
+          html += '<div class="ntb-detail-placeholder">该题目数据暂不可用</div>';
         } else {
-          html += '<div class="ntb-explanation" style="color:var(--text-muted);">题目数据未加载，请先在科目选择中加载该科目</div>';
+          html += '<div class="ntb-detail-placeholder ntb-loading">题目加载中，请稍候... <span class="ntb-loading-dot"></span></div>';
         }
         html += '<button class="btn btn-ghost btn-sm ntb-delete-btn" data-qid="' + _esc(qid) + '">🗑 移除此题</button>';
         html += '</div>';
         html += '</div>';
       }
+
+      return html;
+    },
+
+    /** Render the expanded detail section for a single question */
+    _renderQuestionDetail: function(q) {
+      var html = '';
+      var opts = q.options || q.opts || [];
+      var correct = q.correctAnswers || q.ans || [];
+      var correctSet = {};
+      for (var ci = 0; ci < correct.length; ci++) correctSet[correct[ci]] = true;
+
+      html += '<div class="ntb-options">';
+      var labels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+      for (var oi = 0; oi < opts.length; oi++) {
+        var isCorrect = correctSet[oi] || correctSet[String(oi)] || correctSet[labels[oi]];
+        html += '<div class="ntb-option' + (isCorrect ? ' correct' : '') + '">' +
+          '<span class="ntb-opt-label">' + labels[oi] + '</span> ' + _esc(opts[oi]) +
+          (isCorrect ? ' ✓' : '') +
+          '</div>';
+      }
+      html += '</div>';
+
+      var kp = q.knowledgePoint || q.kp;
+      var exp = q.explanation || q.exp;
+      var ref = q.textbookReference || q.ref;
+
+      if (kp) html += '<div class="ntb-kp"><span class="ntb-kp-label">📖 知识点</span> ' + _esc(kp) + '</div>';
+      if (exp) html += '<div class="ntb-explanation">💡 ' + _esc(exp) + '</div>';
+      if (ref) html += '<div class="ntb-explanation">📚 参考：' + _esc(ref) + '</div>';
 
       return html;
     },
@@ -235,7 +345,6 @@
       }
 
       var qid = this._testQuestions[this._testIndex];
-      var q = MediCard.WrongQuestionBook.getQuestionData(qid);
       var area = document.getElementById('ntb-test-area');
       if (!area) return;
 
@@ -246,26 +355,46 @@
       if (fill) fill.style.width = progressPct + '%';
       if (text) text.textContent = this._testAnswered + '/' + this._testQuestions.length + ' · 正确' + this._testCorrect;
 
-      if (!q) {
-        // Try to load the subject first, then retry
-        var subj = MediCard.WrongQuestionBook._subjectFromId(qid);
-        var loader = MediCard.QuestionLoader;
-        if (loader && loader.getSubject) {
-          loader.getSubject(subj); // trigger load if needed
-        }
-        // Skip questions we can't load
-        this._testIndex++;
-        this._showNextTestQuestion();
+      var self = this;
+      var loader = MediCard.QuestionLoader;
+
+      // Try indexed lookup first
+      var q = MediCard.WrongQuestionBook.getQuestionData(qid);
+
+      if (q) {
+        this._renderTestQuestion(q, qid, area);
         return;
       }
 
+      // Not in cache — try async load
+      if (loader && loader.findQuestionById) {
+        area.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">加载题目中...</div>';
+        loader.findQuestionById(qid, function(found) {
+          if (found) {
+            self._renderTestQuestion(found, qid, area);
+          } else {
+            // Skip question we genuinely can't find
+            self._testIndex++;
+            self._showNextTestQuestion();
+          }
+        });
+        return;
+      }
+
+      // Absolute fallback — skip
+      this._testIndex++;
+      this._showNextTestQuestion();
+    },
+
+    /** Render a test question into the test area */
+    _renderTestQuestion: function(q, qid, area) {
+      var self = this;
       var opts = q.options || q.opts || [];
       var correct = q.correctAnswers || q.ans || [];
       var correctSet = {};
       for (var ci = 0; ci < correct.length; ci++) correctSet[correct[ci]] = true;
 
-      var labels = ['A', 'B', 'C', 'D', 'E'];
-      var self = this;
+      var labels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
       area.innerHTML = '' +
         '<div class="ntb-test-question">' +
@@ -409,6 +538,19 @@
     _attachEvents: function(content) {
       var self = this;
 
+      // Wrong/Bookmark tab switching
+      content.querySelectorAll('.ntb-tab-btn').forEach(function(tabBtn) {
+        tabBtn.addEventListener('click', function() {
+          var tab = this.getAttribute('data-tab');
+          if (tab === self._activeTab) return;
+          self._activeTab = tab;
+          // Re-render
+          content.innerHTML = self._renderHTML();
+          self._attachEvents(content);
+          self._ensureSubjectsLoaded();
+        });
+      });
+
       // Subject tab switching
       content.querySelectorAll('.ntb-subj-tab').forEach(function(tab) {
         tab.addEventListener('click', function() {
@@ -417,7 +559,7 @@
           content.querySelectorAll('.ntb-subj-tab').forEach(function(t) { t.classList.remove('active'); });
           this.classList.add('active');
           // Update question list
-          var groups = MediCard.WrongQuestionBook.getBySubject('wrong');
+          var groups = MediCard.WrongQuestionBook.getBySubject(self._activeTab);
           var qlist = document.getElementById('ntb-qlist');
           if (qlist) {
             qlist.innerHTML = self._renderQuestionList(subj, groups[subj] || []);
@@ -434,14 +576,16 @@
       if (modeBtn) {
         modeBtn.addEventListener('click', function() {
           if (self._mode === 'view') {
+            // Only test on wrong questions (not bookmarks)
+            var testIds = MediCard.WrongQuestionBook.getAll('wrong');
+            if (testIds.length === 0) return;
             self._mode = 'test';
-            var allIds = MediCard.WrongQuestionBook.getAll('wrong');
             // Shuffle
-            for (var i = allIds.length - 1; i > 0; i--) {
+            for (var i = testIds.length - 1; i > 0; i--) {
               var j = Math.floor(Math.random() * (i + 1));
-              var tmp = allIds[i]; allIds[i] = allIds[j]; allIds[j] = tmp;
+              var tmp = testIds[i]; testIds[i] = testIds[j]; testIds[j] = tmp;
             }
-            self._testQuestions = allIds;
+            self._testQuestions = testIds;
             self._testIndex = 0;
             self._testCorrect = 0;
             self._testAnswered = 0;
@@ -449,9 +593,17 @@
             content.innerHTML = self._renderHTML();
             self._attachEvents(content);
           } else {
+            // Apply deferred removals before switching back to view
+            if (self._testAnsweredIds.length > 0) {
+              for (var r = 0; r < self._testAnsweredIds.length; r++) {
+                MediCard.WrongQuestionBook.deleteEntry('wrong', self._testAnsweredIds[r]);
+              }
+              self._testAnsweredIds = [];
+            }
             self._mode = 'view';
             content.innerHTML = self._renderHTML();
             self._attachEvents(content);
+            self._ensureSubjectsLoaded();
           }
         });
       }
@@ -460,20 +612,30 @@
       var closeBtn = document.getElementById('ntb-close');
       if (closeBtn) closeBtn.addEventListener('click', function() { self.close(); });
 
-      // Delete button
+      // Delete button (handles both wrong and bookmark)
       content.querySelectorAll('.ntb-delete-btn').forEach(function(btn) {
         btn.addEventListener('click', function(e) {
           e.stopPropagation();
           var qid = this.getAttribute('data-qid');
-          MediCard.WrongQuestionBook.deleteEntry('wrong', qid);
+          var tab = self._activeTab || 'wrong';
+          MediCard.WrongQuestionBook.deleteEntry(tab, qid);
           // Remove card from DOM
           var card = this.closest('.ntb-q-card');
           if (card) card.remove();
           // Refresh tab counts
-          self._refreshTabCounts(content);
-          // If no more questions, close
-          if (MediCard.WrongQuestionBook.getCount('wrong') === 0) {
-            self.close();
+          self._updateTabCounts();
+          var remaining = MediCard.WrongQuestionBook.getCount(tab);
+          // If no more questions in this tab, switch or close
+          if (remaining === 0) {
+            var otherTab = tab === 'wrong' ? 'bookmark' : 'wrong';
+            if (MediCard.WrongQuestionBook.getCount(otherTab) > 0) {
+              self._activeTab = otherTab;
+              content.innerHTML = self._renderHTML();
+              self._attachEvents(content);
+              self._ensureSubjectsLoaded();
+            } else {
+              self.close();
+            }
           }
         });
       });
@@ -516,17 +678,29 @@
 
   /* ============ Helpers ============ */
   function _esc(str) {
-    return MediCard.Crypto.escapeHtml(str);
+    if (MediCard.Crypto && MediCard.Crypto.escapeHtml) {
+      return MediCard.Crypto.escapeHtml(str);
+    }
+    // Fallback: basic HTML escaping
+    var s = String(str == null ? '' : str);
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  // Expose global accessor for title screen button
+  // Expose global accessor for title screen / study module buttons
   window._medicardOpenNotebook = function() {
     if (MediCard.QuestionLoader) {
-      // Preload subjects that have wrong questions
-      var groups = MediCard.WrongQuestionBook.getBySubject('wrong');
-      var subjects = Object.keys(groups);
-      for (var i = 0; i < subjects.length; i++) {
-        MediCard.QuestionLoader.getSubject(subjects[i]);
+      // Preload ALL subjects that have wrong OR bookmarked questions
+      var wrongIds = MediCard.WrongQuestionBook.getAll('wrong');
+      var bookmarkIds = MediCard.WrongQuestionBook.getAll('bookmark');
+      var allIds = wrongIds.concat(bookmarkIds);
+      var neededSubjects = {};
+      for (var i = 0; i < allIds.length; i++) {
+        var subj = MediCard.WrongQuestionBook._subjectFromId(allIds[i]);
+        if (subj && subj !== 'unknown') neededSubjects[subj] = true;
+      }
+      var subjects = Object.keys(neededSubjects);
+      for (var j = 0; j < subjects.length; j++) {
+        MediCard.QuestionLoader.loadSubject(subjects[j]);
       }
     }
     MediCard.ScreenNotebook.show();

@@ -13,6 +13,7 @@
     _loadingSubjects: {},
     _loadCallbacks: [],
     _cacheVersion: null,  // set on init from MediCard.Config.version
+    _questionIndex: {},   // qid → { subjectId, index } — built lazily on load
 
     init(selectedSubjectIds) {
       this._selectedSubjects = new Set(selectedSubjectIds);
@@ -110,6 +111,7 @@
         MediCard.QuestionBank[subjectId] = data;
         this._cache[subjectId] = data;
         this._loadedSubjects.add(subjectId);
+        this._indexSubject(subjectId);
         return true;
       } catch(e) { return false; }
     },
@@ -156,6 +158,7 @@
         if (bank[subjectId]) {
           self._cache[subjectId] = bank[subjectId];
           self._loadedSubjects.add(subjectId);
+          self._indexSubject(subjectId);
           // Persist to localStorage so next visit skips network
           self._persistToCache(subjectId);
         }
@@ -183,6 +186,7 @@
       if (bank[subjectId]) {
         this._cache[subjectId] = bank[subjectId];
         this._loadedSubjects.add(subjectId);
+        this._indexSubject(subjectId);
         return bank[subjectId];
       }
       // Trigger async fetch: kick off script-injection load if not already in flight.
@@ -250,6 +254,82 @@
       if (this._cache[subjectId]) return this._cache[subjectId].length;
       var meta = (MediCard.Config && MediCard.Config.subjectMeta) ? MediCard.Config.subjectMeta[subjectId] : null;
       return meta ? (meta.questionCount || 0) : 0;
+    },
+
+    /** Build reverse index for a subject's questions: qid → { subjectId, index } */
+    _indexSubject: function(subjectId) {
+      var questions = this._cache[subjectId];
+      if (!questions || !questions.length) return;
+      for (var i = 0; i < questions.length; i++) {
+        var q = questions[i];
+        var qid = q.id;
+        if (qid) this._questionIndex[qid] = { subjectId: subjectId, index: i };
+        // Also index card-style IDs (e.g., atk_0_physiology-comm-001)
+        if (q.cardId) this._questionIndex[q.cardId] = { subjectId: subjectId, index: i };
+      }
+    },
+
+    /**
+     * Find a question by ID across all loaded subjects (O(1) indexed lookup).
+     * If the subject isn't loaded yet, triggers a fetch + onReady callback.
+     * @param {string} questionId
+     * @param {function} callback receives (questionData || null)
+     */
+    findQuestionById: function(questionId, callback) {
+      var self = this;
+      if (!questionId) { if (callback) callback(null); return; }
+
+      // Fast path: index hit
+      var entry = this._questionIndex[questionId];
+      if (entry && this._cache[entry.subjectId]) {
+        var q = this._cache[entry.subjectId][entry.index];
+        if (q && (q.id === questionId || q.cardId === questionId)) {
+          if (callback) callback(q);
+          return q;
+        }
+      }
+
+      // Slow path: determine subject and ensure it's loaded
+      var subj = MediCard.WrongQuestionBook
+        ? MediCard.WrongQuestionBook._subjectFromId(questionId)
+        : null;
+      if (!subj || subj === 'unknown') { if (callback) callback(null); return null; }
+
+      // Already loaded — linear scan (shouldn't happen if index is built, but safety net)
+      if (this._loadedSubjects.has(subj) && this._cache[subj]) {
+        var qs = this._cache[subj];
+        for (var i = 0; i < qs.length; i++) {
+          if (qs[i].id === questionId || qs[i].cardId === questionId) {
+            if (callback) callback(qs[i]);
+            return qs[i];
+          }
+        }
+        if (callback) callback(null);
+        return null;
+      }
+
+      // Not loaded — trigger fetch and wait
+      this.loadSubject(subj);
+      this.onReady(function() {
+        var retry = self._questionIndex[questionId];
+        if (retry && self._cache[retry.subjectId]) {
+          var q2 = self._cache[retry.subjectId][retry.index];
+          if (callback) callback(q2 || null);
+          return;
+        }
+        // Last-resort scan
+        var qs2 = self._cache[subj];
+        if (qs2) {
+          for (var j = 0; j < qs2.length; j++) {
+            if (qs2[j].id === questionId || qs2[j].cardId === questionId) {
+              if (callback) callback(qs2[j]);
+              return;
+            }
+          }
+        }
+        if (callback) callback(null);
+      });
+      return null; // async — returns null, caller must use callback
     },
 
   };

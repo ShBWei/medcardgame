@@ -1,45 +1,104 @@
 /**
- * MediCard 医杀 — Wrong Question Notebook Styles (V1.0)
+ * MediCard 医杀 — Wrong Question Notebook Styles (V2.0)
+ * Mobile-first responsive: clamp() fluid typography, 44-48px touch targets.
  */
 
 .ntb-overlay {
   backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .ntb-modal {
   background: var(--bg-secondary);
   border: 1px solid rgba(100, 116, 139, 0.2);
   border-radius: var(--radius-lg);
-  padding: 20px;
-  margin: 40px auto;
+  padding: 16px;
+  margin: 16px auto;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  width: 96%;
+  max-width: 720px;
+  max-height: 90vh;
+  overflow-y: auto;
+  animation: modalEnter 250ms ease-out;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .ntb-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
   padding-bottom: 12px;
   border-bottom: 1px solid rgba(100, 116, 139, 0.15);
+  gap: 12px;
 }
 
 .ntb-header h3 {
   margin: 0;
-  font-size: 18px;
+  font-size: clamp(17px, 4.5vw, 20px);
+  flex-shrink: 0;
 }
 
-/* Subject tabs */
+/* ── Main wrong/bookmark tabs ── */
+.ntb-main-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.ntb-tab-btn {
+  flex: 1;
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid rgba(100, 116, 139, 0.2);
+  border-radius: 10px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: clamp(14px, 3.5vw, 16px);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ntb-tab-btn:hover {
+  background: rgba(100, 116, 139, 0.15);
+  border-color: rgba(100, 116, 139, 0.4);
+}
+
+.ntb-tab-btn.active {
+  background: var(--accent-cyan);
+  color: #000;
+  border-color: var(--accent-cyan);
+}
+
+.ntb-tab-count {
+  font-size: 0.75em;
+  opacity: 0.65;
+}
+
+.ntb-tab-btn.active .ntb-tab-count {
+  opacity: 0.85;
+  color: rgba(0,0,0,0.6);
+}
+
+/* ── Subject tabs ── */
 .ntb-subj-tabs {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .ntb-subj-tab {
-  font-size: 12px;
-  padding: 5px 12px;
+  font-size: clamp(12px, 3vw, 13px);
+  padding: 8px 14px;
+  min-height: 40px;
   border: 1px solid rgba(100, 116, 139, 0.25);
   border-radius: 20px;
   background: var(--bg-tertiary);
@@ -47,6 +106,11 @@
   cursor: pointer;
   transition: all 0.2s;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .ntb-subj-tab:hover {
@@ -61,15 +125,19 @@
   font-weight: 600;
 }
 
-.ntb-subj-count {
-  font-size: 10px;
-  opacity: 0.7;
-  margin-left: 2px;
+.ntb-subj-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* Question list */
+.ntb-subj-count {
+  font-size: 0.75em;
+  opacity: 0.7;
+}
+
+/* ── Question list ── */
 .ntb-question-list {
-  max-height: 55vh;
+  max-height: 50vh;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -81,22 +149,60 @@
   padding: 8px 0;
   margin-bottom: 8px;
   border-bottom: 1px solid rgba(100, 116, 139, 0.1);
+  gap: 8px;
 }
 
 .ntb-subj-title {
   font-weight: 600;
-  font-size: 14px;
+  font-size: clamp(14px, 3.5vw, 16px);
   color: var(--text-primary);
 }
 
 .ntb-empty-subj {
   text-align: center;
-  padding: 24px;
+  padding: 32px 16px;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: clamp(13px, 3vw, 14px);
 }
 
-/* Question card */
+/* Loading tag shown while subject is being fetched */
+.ntb-loading-tag {
+  font-size: 11px;
+  color: var(--accent-yellow);
+  font-weight: 600;
+  animation: ntb-pulse 1.2s ease-in-out infinite;
+}
+
+/* Loading placeholder for unloaded question detail */
+.ntb-detail-placeholder {
+  font-size: clamp(12px, 2.8vw, 13px);
+  color: var(--text-muted);
+  padding: 10px 0;
+}
+
+.ntb-detail-placeholder.ntb-loading {
+  color: var(--accent-yellow);
+}
+
+.ntb-loading-dot::after {
+  content: '';
+  animation: ntb-dots 1.5s steps(4, end) infinite;
+}
+
+@keyframes ntb-dots {
+  0%   { content: ''; }
+  25%  { content: '.'; }
+  50%  { content: '..'; }
+  75%  { content: '...'; }
+  100% { content: ''; }
+}
+
+@keyframes ntb-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ── Question card ── */
 .ntb-q-card {
   margin-bottom: 6px;
   border: 1px solid rgba(100, 116, 139, 0.12);
@@ -113,32 +219,48 @@
 .ntb-q-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
+  gap: 10px;
+  padding: 12px 14px;
+  min-height: 48px;
   cursor: pointer;
   user-select: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .ntb-q-num {
-  font-size: 11px;
+  font-size: clamp(11px, 2.5vw, 12px);
   color: var(--text-muted);
   font-family: var(--font-mono);
   min-width: 24px;
+  flex-shrink: 0;
 }
 
 .ntb-q-text {
   flex: 1;
-  font-size: 13px;
+  font-size: clamp(14px, 3.5vw, 16px);
   color: var(--text-primary);
   line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .ntb-q-toggle {
-  font-size: 10px;
+  font-size: clamp(12px, 3vw, 14px);
   color: var(--text-muted);
+  min-width: 32px;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
   transition: transform 0.2s;
 }
 
+/* ── Expanded question detail ── */
 .ntb-q-detail {
   padding: 0 14px 14px;
   border-top: 1px solid rgba(100, 116, 139, 0.08);
@@ -159,11 +281,12 @@
 }
 
 .ntb-option {
-  font-size: 12px;
-  padding: 6px 10px;
-  border-radius: 6px;
+  font-size: clamp(13px, 3vw, 15px);
+  padding: 8px 12px;
+  border-radius: 8px;
   background: rgba(0, 0, 0, 0.15);
   color: var(--text-secondary);
+  line-height: 1.4;
 }
 
 .ntb-option.correct {
@@ -184,33 +307,46 @@
   color: #10b981;
 }
 
-.ntb-explanation {
-  font-size: 12px;
-  color: var(--text-secondary);
-  padding: 8px 10px;
-  background: rgba(250, 204, 21, 0.06);
-  border-left: 3px solid rgba(250, 204, 21, 0.3);
-  border-radius: 0 6px 6px 0;
-  margin-bottom: 6px;
-}
-
+/* ── Knowledge point & explanation ── */
 .ntb-kp {
-  font-size: 11px;
+  font-size: clamp(11px, 2.6vw, 12px);
   color: var(--text-muted);
   margin-bottom: 4px;
 }
 
+.ntb-kp-label {
+  margin-right: 6px;
+}
+
+.ntb-explanation {
+  font-size: clamp(12px, 2.8vw, 14px);
+  color: var(--text-secondary);
+  padding: 8px 12px;
+  background: rgba(250, 204, 21, 0.06);
+  border-left: 3px solid rgba(250, 204, 21, 0.3);
+  border-radius: 0 8px 8px 0;
+  margin-bottom: 6px;
+  line-height: 1.5;
+}
+
+/* ── Delete button ── */
 .ntb-delete-btn {
   margin-top: 8px;
-  font-size: 11px;
+  font-size: clamp(12px, 2.8vw, 13px);
   color: var(--text-muted);
+  min-height: 40px;
+  min-width: 44px;
+  padding: 8px 14px;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .ntb-delete-btn:hover {
   color: #ef4444;
 }
 
-/* Test mode */
+/* ── Test mode ── */
 .ntb-test-progress {
   margin-bottom: 16px;
 }
@@ -220,7 +356,7 @@
   background: rgba(100, 116, 139, 0.15);
   border-radius: 3px;
   overflow: hidden;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .ntb-progress-fill {
@@ -231,7 +367,7 @@
 }
 
 .ntb-progress-text {
-  font-size: 11px;
+  font-size: clamp(12px, 2.8vw, 13px);
   color: var(--text-muted);
   text-align: center;
 }
@@ -245,19 +381,19 @@
 }
 
 .ntb-test-q-num {
-  font-size: 12px;
+  font-size: clamp(12px, 3vw, 14px);
   color: var(--text-muted);
   margin-bottom: 8px;
   text-align: center;
 }
 
 .ntb-test-q-text {
-  font-size: 15px;
+  font-size: clamp(15px, 3.8vw, 18px);
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 16px;
   line-height: 1.5;
-  padding: 12px;
+  padding: 14px;
   background: rgba(0, 0, 0, 0.15);
   border-radius: 10px;
 }
@@ -271,16 +407,20 @@
 .ntb-test-opt-btn {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
+  gap: 12px;
+  padding: 14px 16px;
+  min-height: 48px;
   background: var(--bg-tertiary);
   border: 1px solid rgba(100, 116, 139, 0.2);
   border-radius: 10px;
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: clamp(14px, 3.5vw, 16px);
   cursor: pointer;
   transition: all 0.15s;
   text-align: left;
+  line-height: 1.4;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .ntb-test-opt-btn:hover:not(:disabled) {
@@ -315,15 +455,22 @@
 
 .ntb-test-feedback {
   text-align: center;
-  padding: 12px;
+  padding: 14px;
   margin-top: 12px;
-  font-size: 14px;
+  font-size: clamp(14px, 3.5vw, 16px);
   font-weight: 600;
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.15);
 }
 
-/* Scrollbar styling */
+.ntb-test-next-btn {
+  margin-top: 12px;
+  width: 100%;
+  min-height: 48px;
+  font-size: clamp(15px, 3.8vw, 17px);
+}
+
+/* ── Scrollbar styling ── */
 .ntb-question-list::-webkit-scrollbar {
   width: 4px;
 }
@@ -337,24 +484,42 @@
   border-radius: 2px;
 }
 
-/* Responsive */
-@media (max-width: 480px) {
+/* ── Responsive: wider screens add constraints ── */
+@media (min-width: 600px) {
   .ntb-modal {
-    padding: 14px;
-    margin: 20px auto;
-    max-height: 90vh;
+    padding: 20px;
+    margin: 24px auto;
   }
 
-  .ntb-header h3 {
-    font-size: 16px;
+  .ntb-q-header {
+    padding: 12px 16px;
   }
 
-  .ntb-test-q-text {
-    font-size: 13px;
+  .ntb-q-detail {
+    padding: 0 16px 16px;
+  }
+}
+
+@media (min-width: 900px) {
+  .ntb-modal {
+    padding: 24px;
+    margin: 40px auto;
+  }
+
+  /* Wider: 2-column option layout in test mode */
+  .ntb-test-options {
+    flex-direction: row;
+    flex-wrap: wrap;
   }
 
   .ntb-test-opt-btn {
-    padding: 10px 12px;
-    font-size: 13px;
+    flex: 1 1 calc(50% - 4px);
+    min-width: 240px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .ntb-modal {
+    padding: 28px;
   }
 }

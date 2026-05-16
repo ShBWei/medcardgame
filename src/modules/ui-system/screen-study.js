@@ -384,12 +384,22 @@
       overlay.style.zIndex = '5000';
 
       var themes = [
-        { id: 'nightstudy', name: '深夜暖光自习室', desc: '暖黄灯光 · 桌面陪伴', preview: 'nightstudy' },
-        { id: 'sakura',     name: '春日樱花庭院',   desc: '粉色柔光 · 花瓣轻舞', preview: 'sakura' },
-        { id: 'camp',       name: '星空露营地',     desc: '深蓝夜空 · 篝火噼啪', preview: 'camp' },
-        { id: 'catcafe',    name: '猫咪咖啡馆',     desc: '奶油橘色 · 猫咪相伴', preview: 'catcafe' },
-        { id: 'seaside',    name: '海边日落',       desc: '橙红渐变 · 海浪轻拍', preview: 'seaside' },
-        { id: 'minimal',    name: '极简白噪音',     desc: '纯白极简 · 专注无声', preview: 'minimal' }
+        { id: 'nightstudy',   name: '深夜暖光自习室', desc: '暖黄灯光 · 桌面陪伴', preview: 'nightstudy' },
+        { id: 'sakura',       name: '春日樱花庭院',   desc: '粉色柔光 · 花瓣轻舞', preview: 'sakura' },
+        { id: 'camp',         name: '星空露营地',     desc: '深蓝夜空 · 篝火噼啪', preview: 'camp' },
+        { id: 'catcafe',      name: '猫咪咖啡馆',     desc: '奶油橘色 · 猫咪相伴', preview: 'catcafe' },
+        { id: 'seaside',      name: '海边日落',       desc: '橙红渐变 · 海浪轻拍', preview: 'seaside' },
+        { id: 'minimal',      name: '极简白噪音',     desc: '纯白极简 · 专注无声', preview: 'minimal' },
+        { id: 'med-sakura',   name: '樱花病历',       desc: '暖粉病历 · 花瓣轻落', preview: 'med-sakura' },
+        { id: 'med-ocean',    name: '深海听诊',       desc: '深海蓝调 · 专注冷静', preview: 'med-ocean' },
+        { id: 'med-herbal',   name: '青囊书简',       desc: '竹简古韵 · 墨香四溢', preview: 'med-herbal' },
+        { id: 'med-garden',   name: '杏林春暖',       desc: '杏林绿意 · 花香暖阳', preview: 'med-garden' },
+        { id: 'med-lab',      name: '实验报告',       desc: '极简白底 · 数据清晰', preview: 'med-lab' },
+        { id: 'med-bamboo',   name: '竹林听风',       desc: '青竹淡雅 · 禅意清风', preview: 'med-bamboo' },
+        { id: 'med-sterile',  name: '手术清创',       desc: '无菌蓝灰 · 精准冷静', preview: 'med-sterile' },
+        { id: 'med-starry',   name: '星空药典',       desc: '深空星蓝 · 药典辉光', preview: 'med-starry' },
+        { id: 'med-clinic',   name: '诊所手记',       desc: '暖杏色调 · 诊所笔记', preview: 'med-clinic' },
+        { id: 'med-hippocrates', name: '希波克拉底殿堂', desc: '大理古殿 · 医圣箴言', preview: 'med-hippocrates' }
       ];
 
       var optionsHtml = themes.map(function(t) {
