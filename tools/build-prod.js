@@ -47,6 +47,7 @@ const JS_FILES = [
   'config/deploy-config.js',
   'security/crypto-utils.js',
   'security/frontend-security.js',
+  'cloud-api.js',
   'storage/local-storage.js',
   // Question bank
   'question-bank/question-loader.js',
