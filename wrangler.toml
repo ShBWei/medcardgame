@@ -8,7 +8,7 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "medcard-db"
-database_id = "medcard-db"
+database_id = "96769cc4-ec36-46ca-8c39-0d16ec760e21"
 
 # Observability (free tier)
 [observability]

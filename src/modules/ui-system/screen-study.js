@@ -292,16 +292,35 @@
       this._syncProgressToServer();
     },
 
+    _syncingCloud: false,
+
     _syncProgressToServer: function() {
+      // Sync to Cloudflare Worker API
+      var self = this;
+      if (this._syncingCloud) return;
+      try {
+        if (MediCard.CloudAPI && MediCard.CloudAPI.isLoggedIn()) {
+          this._syncingCloud = true;
+          var subjects = MediCard.Config.subjectCategories[0].subjects;
+          for (var s = 0; s < subjects.length; s++) {
+            var subj = subjects[s];
+            var prog = self._progress[subj];
+            if (prog && prog.answered > 0) {
+              MediCard.CloudAPI.saveProgress(
+                subj, prog.answered, prog.correct, prog.streak || 0, prog.maxStreak || 0
+              ).catch(function(){});
+            }
+          }
+          setTimeout(function() { self._syncingCloud = false; }, 3000);
+        }
+      } catch(e) {}
+      // Legacy: also try server endpoint
       try {
         var Storage = MediCard.Storage;
         if (!Storage) return;
         var userId = Storage.getCurrentUserId();
         if (!userId) return;
-        var data = {
-          userId: userId,
-          studyProgress: this._progress
-        };
+        var data = { userId: userId, studyProgress: this._progress };
         fetch('/api/study-progress', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -312,30 +331,70 @@
 
     _restoreProgressFromServer: function(callback) {
       var self = this;
-      var userId = MediCard.Storage ? MediCard.Storage.getCurrentUserId() : null;
-      if (!userId) { if (callback) callback(); return; }
+      var done = false;
+      function doneOnce() {
+        if (done) return;
+        done = true;
+        if (callback) callback();
+      }
+      // Try Cloudflare API first
       try {
-        fetch('/api/study-progress?userId=' + encodeURIComponent(userId))
-          .then(function(r) { return r.json(); })
-          .then(function(data) {
-            if (data.ok && data.studyProgress) {
-              // Merge server progress (takes precedence for answered count)
-              var serverProg = data.studyProgress;
+        if (MediCard.CloudAPI && MediCard.CloudAPI.isLoggedIn()) {
+          MediCard.CloudAPI.getProgress().then(function(data) {
+            if (data && data.progress) {
+              var cloudProg = data.progress;
               var localProg = self._progress || {};
               var subjects = MediCard.Config.subjectCategories[0].subjects;
-              for (var s = 0; s < subjects.length; s++) {
-                var subj = subjects[s];
-                if (serverProg[subj]) {
-                  localProg[subj] = serverProg[subj];
+              for (var i = 0; i < subjects.length; i++) {
+                var subj = subjects[i];
+                if (cloudProg[subj]) {
+                  var cp = cloudProg[subj];
+                  var lp = localProg[subj] || { answered: 0, correct: 0, streak: 0, maxStreak: 0 };
+                  if (cp.totalAnswered > (lp.answered || 0)) {
+                    localProg[subj] = {
+                      answered: cp.totalAnswered,
+                      correct: cp.totalCorrect,
+                      streak: cp.streak || 0,
+                      maxStreak: cp.maxStreak || 0
+                    };
+                  }
                 }
               }
               self._progress = localProg;
               self._saveSubjectProgress();
             }
-            if (callback) callback();
+            doneOnce();
+          }).catch(function() {
+            doneOnce();
+          });
+          // Cloud is primary — skip legacy
+          return;
+        }
+      } catch(e) {}
+      // Legacy server fallback
+      var userId = MediCard.Storage ? MediCard.Storage.getCurrentUserId() : null;
+      if (!userId) { doneOnce(); return; }
+      try {
+        fetch('/api/study-progress?userId=' + encodeURIComponent(userId))
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.ok && data.studyProgress) {
+              var serverProg = data.studyProgress;
+              var localProg = self._progress || {};
+              var subjects = MediCard.Config.subjectCategories[0].subjects;
+              for (var s = 0; s < subjects.length; s++) {
+                var subj2 = subjects[s];
+                if (serverProg[subj2]) {
+                  localProg[subj2] = serverProg[subj2];
+                }
+              }
+              self._progress = localProg;
+              self._saveSubjectProgress();
+            }
+            doneOnce();
           })
-          .catch(function() { if (callback) callback(); });
-      } catch(e) { if (callback) callback(); }
+          .catch(function() { doneOnce(); });
+      } catch(e) { doneOnce(); }
     },
 
     _getSavedIndex: function(subjectId) {

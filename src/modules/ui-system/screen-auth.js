@@ -279,27 +279,50 @@
       }
 
       if (!user) {
-        // Local lookup failed — try server-side recovery
+        // Local lookup failed — try Cloudflare API
         var self = this;
-        MediCard.Storage.lookupAccountOnServer(username, function(found, serverAcct) {
-          if (found && serverAcct) {
-            // Account exists on server — restore it locally then verify password
-            MediCard.Storage.restoreAccountFromServer(serverAcct.userId, function(restored, restoredUser) {
-              if (restored && restoredUser) {
-                // Now try login with restored user
-                if (!restoredUser.passwordHash) {
-                  self._doSetFirstPassword(restoredUser, password, usernameEl);
-                } else {
-                  self._doLogin(restoredUser, password, usernameEl);
-                }
-              } else {
-                _showError('auth-login-error', '从服务器恢复账号失败，请检查网络');
+        try {
+          if (MediCard.CloudAPI) {
+            MediCard.CloudAPI.init();
+            MediCard.CloudAPI.login(username, password).then(function(data) {
+              if (data.success) {
+                // Cloud login succeeded — create local account
+                MediCard.Crypto.hashPassword(password, function(hash) {
+                  var restoredUser = {
+                    id: 'u_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                    username: MediCard.Crypto.sanitize(username, 16),
+                    avatarColor: COLORS[Math.floor(Math.random() * COLORS.length)],
+                    avatarIcon: ICONS[Math.floor(Math.random() * ICONS.length)],
+                    passwordHash: hash,
+                    createdAt: new Date().toISOString()
+                  };
+                  MediCard.Storage.saveUser(restoredUser);
+                  MediCard.Storage.setCurrentUser(restoredUser.id);
+                  MediCard.CloudAPI.init();
+                  // Reload cloud progress
+                  MediCard.CloudAPI.getProgress().then(function(pData) {
+                    if (pData.progress) {
+                      try {
+                        localStorage.setItem('medicard_study_progress', JSON.stringify(pData.progress));
+                      } catch(e) {}
+                    }
+                  }).catch(function(){});
+                  try { MediCard.Audio.playButtonClick(); } catch(e) {}
+                  MediCard.GameState.goToScreen('title');
+                });
+                return;
               }
+              // Cloud login failed too — try server-side recovery
+              self._fallbackServerRecovery(username, password, usernameEl);
+            }).catch(function() {
+              // Cloud unreachable — try server-side recovery
+              self._fallbackServerRecovery(username, password, usernameEl);
             });
-          } else {
-            _showError('auth-login-error', '账号不存在，请先注册');
+            return;
           }
-        });
+        } catch(e) {}
+        // No CloudAPI — try legacy server recovery
+        this._fallbackServerRecovery(username, password, usernameEl);
         return;
       }
 
@@ -368,6 +391,28 @@
       this._doRegister(username, password);
     },
 
+    /* ── Legacy server recovery fallback ── */
+    _fallbackServerRecovery: function(username, password, inputEl) {
+      var self = this;
+      MediCard.Storage.lookupAccountOnServer(username, function(found, serverAcct) {
+        if (found && serverAcct) {
+          MediCard.Storage.restoreAccountFromServer(serverAcct.userId, function(restored, restoredUser) {
+            if (restored && restoredUser) {
+              if (!restoredUser.passwordHash) {
+                self._doSetFirstPassword(restoredUser, password, inputEl);
+              } else {
+                self._doLogin(restoredUser, password, inputEl);
+              }
+            } else {
+              _showError('auth-login-error', '从服务器恢复账号失败，请检查网络');
+            }
+          });
+        } else {
+          _showError('auth-login-error', '账号不存在，请先注册');
+        }
+      });
+    },
+
     /* ── Register new user ── */
     _doRegister: function(username, password) {
       var self = this;
@@ -389,7 +434,13 @@
           return;
         }
         MediCard.Storage.setCurrentUser(newUser.id);
-        // Sync account to server for backup
+        // Sync to Cloudflare Worker API
+        try {
+          if (MediCard.CloudAPI) {
+            MediCard.CloudAPI.init();
+            MediCard.CloudAPI.register(username, password).catch(function(){});
+          }
+        } catch(e) {}
         setTimeout(function() { MediCard.Storage.syncAccountToServer(); }, 500);
         try { MediCard.Audio.playButtonClick(); } catch(e) {}
         MediCard.GameState.goToScreen('title');
@@ -403,7 +454,13 @@
         if (match) {
           _clearFailedAttempts(user.id);
           MediCard.Storage.setCurrentUser(user.id);
-          // Sync account to server for backup
+          // Sync to Cloudflare Worker API
+          try {
+            if (MediCard.CloudAPI) {
+              MediCard.CloudAPI.init();
+              MediCard.CloudAPI.login(username, password).catch(function(){});
+            }
+          } catch(e) {}
           setTimeout(function() { MediCard.Storage.syncAccountToServer(); }, 500);
           try { MediCard.Audio.playButtonClick(); } catch(e) {}
           MediCard.GameState.goToScreen('title');

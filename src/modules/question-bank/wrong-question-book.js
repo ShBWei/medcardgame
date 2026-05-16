@@ -158,6 +158,38 @@
     /** Restore wrong/bookmark IDs from server account backup */
     restoreFromServer: function(callback) {
       var self = this;
+      // Try Cloudflare API first
+      try {
+        if (MediCard.CloudAPI && MediCard.CloudAPI.isLoggedIn()) {
+          MediCard.CloudAPI.init();
+          MediCard.CloudAPI.getWrongQuestions().then(function(data) {
+            if (data && data.questions && data.questions.length > 0) {
+              var localWrong = self._loadLocal('wrong');
+              var merged = localWrong.slice();
+              for (var i = 0; i < data.questions.length; i++) {
+                var q = data.questions[i];
+                if (q.questionData && q.questionData.qid) {
+                  if (merged.indexOf(q.questionData.qid) < 0) {
+                    merged.push(q.questionData.qid);
+                  }
+                }
+              }
+              if (merged.length > self._maxEntries) merged = merged.slice(-self._maxEntries);
+              self._saveLocal('wrong', merged);
+            }
+            // Fall through to legacy server restore
+            self._legacyRestoreFromServer(callback);
+          }).catch(function() {
+            self._legacyRestoreFromServer(callback);
+          });
+          return;
+        }
+      } catch(e) {}
+      this._legacyRestoreFromServer(callback);
+    },
+
+    _legacyRestoreFromServer: function(callback) {
+      var self = this;
       var Storage = MediCard.Storage;
       if (!Storage) { if (callback) callback(); return; }
       try {
@@ -205,6 +237,17 @@
       return merged;
     },
 
+    /** Parse question ID like "microbiology_042" → { subject, index } */
+    _parseQid: function(qid) {
+      var decoded = this._decodeId(qid);
+      var idx = decoded.lastIndexOf('_');
+      if (idx < 0) return null;
+      var subject = decoded.substring(0, idx);
+      var num = parseInt(decoded.substring(idx + 1), 10);
+      if (isNaN(num)) return null;
+      return { subject: subject, index: num };
+    },
+
     /** Add a question ID to the list (wrong or bookmark) */
     add: function(type, questionId) {
       if (!questionId) return;
@@ -214,6 +257,21 @@
       ids.push(questionId);
       this._saveLocal(type, ids);
       this._scheduleServerSync();
+      // Sync to Cloudflare API (wrong questions only)
+      if (type === 'wrong') {
+        try {
+          if (MediCard.CloudAPI && MediCard.CloudAPI.isLoggedIn()) {
+            var parsed = this._parseQid(questionId);
+            if (parsed) {
+              MediCard.CloudAPI.addWrongQuestion(parsed.subject, parsed.index, {
+                qid: questionId,
+                subject: parsed.subject,
+                index: parsed.index
+              }).catch(function(){});
+            }
+          }
+        } catch(e) {}
+      }
     },
 
     /** Add a wrong answer question ID */
