@@ -54,6 +54,9 @@ Thumbs.db
 *.log
 server.log
 
+# Claude Code
+.claude/
+
 # Environment
 .env
 .env.local
