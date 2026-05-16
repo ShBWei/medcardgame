@@ -5,7 +5,7 @@
   "main": "index.html",
   "type": "commonjs",
   "scripts": {
-    "build": "echo 'Static site — no build required'",
+    "build": "node tools/build-prod.js",
     "watch": "node tools/build-watch.js",
     "deploy": "bash tools/deploy.sh",
     "lint": "eslint 'src/**/*.js' 'tools/**/*.js'",

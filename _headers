@@ -5,6 +5,10 @@
 /index.html
   Cache-Control: no-cache, must-revalidate
 
+# Production bundle: cache 1 week (versioned)
+/bundle.js
+  Cache-Control: public, max-age=604800
+
 # JavaScript modules: cache 1 week (versioned via ?v= query strings)
 /src/modules/**/*.js
   Cache-Control: public, max-age=604800
