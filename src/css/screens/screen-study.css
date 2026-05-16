@@ -905,6 +905,11 @@
 .study-option-btn:active { transform: scale(0.98); }
 .study-option-btn:disabled { cursor: default; }
 
+.study-option-btn.study-option-selected {
+  background: rgba(6,182,212,0.12);
+  border-color: #06b6d4;
+}
+
 .study-option-letter {
   flex-shrink: 0;
   width: 28px; height: 28px; border-radius: 50%;

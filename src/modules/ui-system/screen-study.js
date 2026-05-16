@@ -527,14 +527,18 @@
 
       var qId = q.id || (this._currentSubject + '_' + idx);
       var isBookmarked = MediCard.WrongQuestionBook && MediCard.WrongQuestionBook.isBookmarked(qId);
+      var isMulti = q.questionType === 'multiple';
 
       var html = '' +
         '<div class="study-question-area">' +
           '<div class="study-question-header">' +
             '<span class="study-question-num">' + subjectName + ' · 第' + (idx + 1) + '/' + total + '题</span>' +
-            '<span>' + (q.difficulty === 'rare' ? '🔷' : q.difficulty === 'epic' ? '💎' : '') + '</span>' +
+            '<span>' + (q.difficulty === 'rare' ? '🔷' : q.difficulty === 'epic' ? '💎' : '') +
+              (isMulti ? ' <span style="display:inline-block;background:#fbbf24;color:#1c1917;font-size:11px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;">多选</span>' : '') +
+            '</span>' +
           '</div>' +
           '<div class="study-question-progress-bar"><div class="study-question-progress-fill" style="width:' + pct + '%;"></div></div>' +
+          (isMulti ? '<div style="text-align:center;font-size:13px;font-weight:700;color:#fbbf24;margin-bottom:8px;padding:6px;background:rgba(251,191,36,0.1);border-radius:6px;border:1px solid rgba(251,191,36,0.25);">⚠️ 多选题 — 选择所有正确答案后提交</div>' : '') +
           (this._timerOn ? '<div style="text-align:center;font-size:18px;font-weight:700;color:var(--study-accent);margin-bottom:8px;" id="study-timer-display">30</div>' : '') +
           '<div class="study-question-card">' +
             '<div class="study-question-text">' + _esc(q.question || q.q || '') + '</div>' +
@@ -548,6 +552,7 @@
                 '</button>';
             }).join('') +
           '</div>' +
+          (isMulti ? '<div style="text-align:center;margin-top:10px;"><button class="study-continue-btn" id="multi-submit-btn" style="display:none;min-width:200px;">提交答案</button></div>' : '') +
           '<div id="study-feedback-area"></div>' +
           '<div class="study-toolbar">' +
             '<button class="study-toolbar-btn" id="study-prev-btn" style="display:none">← 上一题</button>' +
@@ -569,17 +574,61 @@
 
     _attachQuestionEvents: function(qId, q) {
       var self = this;
+      var isMulti = q.questionType === 'multiple';
+      var selected = {};  // letter -> true for multi-select toggle
 
       // Option clicks
       var optBtns = document.querySelectorAll('#study-options .study-option-btn');
       for (var i = 0; i < optBtns.length; i++) {
         optBtns[i].addEventListener('click', function() {
           if (self._answered) return;
-          self._answered = true;
-          self._stopTimer();
           var letter = this.getAttribute('data-letter');
-          self._handleAnswer(letter, qId, q);
+
+          if (isMulti) {
+            // Multi-select: toggle selection
+            if (selected[letter]) {
+              delete selected[letter];
+              this.classList.remove('study-option-selected');
+              this.style.background = '';
+              this.style.borderColor = '';
+            } else {
+              selected[letter] = true;
+              this.classList.add('study-option-selected');
+              this.style.background = 'rgba(6,182,212,0.2)';
+              this.style.borderColor = '#06b6d4';
+            }
+            var count = Object.keys(selected).length;
+            var submitBtn = document.getElementById('multi-submit-btn');
+            if (submitBtn) {
+              submitBtn.style.display = count > 0 ? '' : 'none';
+              submitBtn.textContent = '提交答案（已选' + count + '项）';
+            }
+          } else {
+            // Single-select: immediate submit
+            self._answered = true;
+            self._stopTimer();
+            self._handleAnswer([letter], qId, q);
+          }
         });
+      }
+
+      // Multi-select submit button
+      if (isMulti) {
+        var submitBtn = document.getElementById('multi-submit-btn');
+        if (submitBtn) {
+          submitBtn.addEventListener('click', function() {
+            if (self._answered) return;
+            var selectedLetters = Object.keys(selected);
+            if (selectedLetters.length === 0) return;
+            self._answered = true;
+            self._stopTimer();
+            // Disable all option buttons
+            var btns = document.querySelectorAll('#study-options .study-option-btn');
+            for (var b = 0; b < btns.length; b++) btns[b].disabled = true;
+            this.disabled = true;
+            self._handleAnswer(selectedLetters, qId, q);
+          });
+        }
       }
 
       // Bookmark
@@ -660,6 +709,7 @@
         .filter(function(o) { return o.isCorrect; })
         .map(function(o) { return o.letter; });
 
+      var userLetters = historyEntry.letter ? historyEntry.letter.split(', ') : [];
       var optBtns = document.querySelectorAll('#study-options .study-option-btn');
       for (var i = 0; i < optBtns.length; i++) {
         optBtns[i].disabled = true;
@@ -667,7 +717,7 @@
         if (correctLetters.indexOf(btnLetter) >= 0) {
           optBtns[i].classList.add('correct');
         }
-        if (btnLetter === historyEntry.letter && !historyEntry.isCorrect) {
+        if (userLetters.indexOf(btnLetter) >= 0 && !historyEntry.isCorrect) {
           optBtns[i].classList.add('wrong');
         }
       }
@@ -722,7 +772,7 @@
       return html;
     },
 
-    _handleAnswer: function(letter, qId, q) {
+    _handleAnswer: function(selectedLetters, qId, q) {
       var self = this;
       this._sessionAnswered++;
 
@@ -730,13 +780,29 @@
         .filter(function(o) { return o.isCorrect; })
         .map(function(o) { return o.letter; });
 
-      var isCorrect = correctLetters.indexOf(letter) >= 0;
+      var isMulti = q.questionType === 'multiple';
+      var isCorrect;
+      if (isMulti) {
+        // Multi-select: must select exactly the correct set
+        var correctSet = {};
+        for (var c = 0; c < correctLetters.length; c++) correctSet[correctLetters[c]] = true;
+        var selectedSet = {};
+        for (var s = 0; s < selectedLetters.length; s++) selectedSet[selectedLetters[s]] = true;
+        // All selected must be correct
+        var allSelectedCorrect = true;
+        for (var sl = 0; sl < selectedLetters.length; sl++) {
+          if (!correctSet[selectedLetters[sl]]) { allSelectedCorrect = false; break; }
+        }
+        // All correct must be selected (exact match)
+        isCorrect = allSelectedCorrect && selectedLetters.length === correctLetters.length;
+      } else {
+        isCorrect = correctLetters.indexOf(selectedLetters[0]) >= 0;
+      }
 
       if (isCorrect) {
         this._sessionCorrect++;
       } else {
         this._sessionWrongIds.push(qId);
-        // Add to wrong question book
         if (MediCard.WrongQuestionBook) {
           MediCard.WrongQuestionBook.addWrong(qId);
         }
@@ -747,7 +813,7 @@
       // Record in history for back-navigation
       this._questionHistory.push({
         index: this._questionIndex,
-        letter: letter,
+        letter: isMulti ? selectedLetters.slice().sort().join(', ') : selectedLetters[0],
         isCorrect: isCorrect,
         skipped: false,
         qId: qId
@@ -760,7 +826,8 @@
         var btnLetter = optBtns[i].getAttribute('data-letter');
         if (correctLetters.indexOf(btnLetter) >= 0) {
           optBtns[i].classList.add('correct');
-        } else if (btnLetter === letter) {
+        }
+        if (selectedLetters.indexOf(btnLetter) >= 0 && correctLetters.indexOf(btnLetter) < 0) {
           optBtns[i].classList.add('wrong');
         }
       }
@@ -781,7 +848,7 @@
           fbHtml += '<div class="study-answer-compare">' +
             '<div class="study-answer-badge your-answer">' +
               '<div class="study-answer-badge-label">你的答案</div>' +
-              '<div class="study-answer-badge-value">' + _esc(letter) + '</div>' +
+              '<div class="study-answer-badge-value">' + _esc(isMulti ? selectedLetters.sort().join(', ') : selectedLetters[0]) + '</div>' +
             '</div>' +
             '<div class="study-answer-badge correct-answer">' +
               '<div class="study-answer-badge-label">正确答案</div>' +
