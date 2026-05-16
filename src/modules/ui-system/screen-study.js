@@ -15,6 +15,7 @@
     _sessionCorrect: 0,
     _sessionAnswered: 0,
     _sessionWrongIds: [],
+    _questionHistory: [],    // { index, letter, isCorrect, qId } — enables back-navigation
     _answered: false,
     _timerOn: false,
     _timerRemaining: 0,
@@ -226,6 +227,7 @@
       this._sessionCorrect = 0;
       this._sessionAnswered = 0;
       this._sessionWrongIds = [];
+      this._questionHistory = [];
       this._answered = false;
       this._timerOn = false;
       this._stopTimer();
@@ -479,6 +481,7 @@
           '</div>' +
           '<div id="study-feedback-area"></div>' +
           '<div class="study-toolbar">' +
+            '<button class="study-toolbar-btn" id="study-prev-btn" style="display:none">← 上一题</button>' +
             '<button class="study-toolbar-btn' + (isBookmarked ? ' bookmarked' : '') + '" id="study-bookmark-btn">' + (isBookmarked ? '⭐ 已收藏' : '☆ 收藏') + '</button>' +
             '<button class="study-toolbar-btn" id="study-flag-btn">🚩 质疑</button>' +
             '<button class="study-toolbar-btn" id="study-skip-btn">⏭ 跳过</button>' +
@@ -533,6 +536,19 @@
         });
       }
 
+      // Previous question — show if history exists, wire click
+      var prevBtn = document.getElementById('study-prev-btn');
+      if (prevBtn) {
+        if (self._questionHistory.length > 0) {
+          prevBtn.style.display = '';
+          prevBtn.addEventListener('click', function() {
+            self._goToPreviousQuestion();
+          });
+        } else {
+          prevBtn.style.display = 'none';
+        }
+      }
+
       // Skip
       var skipBtn = document.getElementById('study-skip-btn');
       if (skipBtn) {
@@ -541,10 +557,100 @@
           self._stopTimer();
           self._sessionAnswered++;
           self._recordAnswer(false);
+          // Record skip in history so user can go back
+          self._questionHistory.push({
+            index: self._questionIndex,
+            letter: null,
+            isCorrect: false,
+            skipped: true,
+            qId: qId
+          });
           self._questionIndex++;
           self._renderQuestion();
         });
       }
+    },
+
+    /** Go back to the previous question for review */
+    _goToPreviousQuestion: function() {
+      if (this._questionHistory.length === 0) return;
+      this._stopTimer();
+      var prev = this._questionHistory.pop();
+      this._questionIndex = prev.index;
+      this._renderQuestion();
+      // _renderQuestion sets _answered=false, so re-lock after render
+      this._answered = true;
+      this._restoreAnsweredState(prev);
+    },
+
+    /** When navigating back to an already-answered question, show the result */
+    _restoreAnsweredState: function(historyEntry) {
+      var self = this;
+      // Highlight options
+      var correctLetters = this._currentShuffled
+        .filter(function(o) { return o.isCorrect; })
+        .map(function(o) { return o.letter; });
+
+      var optBtns = document.querySelectorAll('#study-options .study-option-btn');
+      for (var i = 0; i < optBtns.length; i++) {
+        optBtns[i].disabled = true;
+        var btnLetter = optBtns[i].getAttribute('data-letter');
+        if (correctLetters.indexOf(btnLetter) >= 0) {
+          optBtns[i].classList.add('correct');
+        }
+        if (btnLetter === historyEntry.letter && !historyEntry.isCorrect) {
+          optBtns[i].classList.add('wrong');
+        }
+      }
+
+      // Show feedback summary
+      var fbArea = document.getElementById('study-feedback-area');
+      if (fbArea) {
+        var q = this._questions[this._questionIndex];
+        var fbHtml = '';
+        if (historyEntry.skipped) {
+          fbHtml += '<div class="study-feedback wrong-fb">⏭ 已跳过</div>';
+        } else if (historyEntry.isCorrect) {
+          fbHtml += '<div class="study-feedback correct-fb">✅ 回答正确！</div>';
+        } else {
+          fbHtml += '<div class="study-feedback wrong-fb">❌ 你的答案：<strong>' + historyEntry.letter + '</strong>，正确答案：<strong>' + correctLetters.join(', ') + '</strong></div>';
+        }
+        fbHtml += this._buildExplanationHTML(q);
+        fbHtml += '<div class="study-nav-buttons">' +
+          '<button class="study-continue-btn secondary" id="study-prev-again-btn">← 再上一题</button>' +
+          '<button class="study-continue-btn" id="study-continue-btn">' +
+            (this._questionIndex + 1 >= this._questions.length ? '完成 · 查看总结 →' : '下一题 →') +
+          '</button>' +
+          '</div>';
+        fbArea.innerHTML = fbHtml;
+
+        var contBtn = document.getElementById('study-continue-btn');
+        if (contBtn) contBtn.addEventListener('click', function() {
+          self._questionIndex++;
+          self._renderQuestion();
+        });
+        var prevAgainBtn = document.getElementById('study-prev-again-btn');
+        if (prevAgainBtn) prevAgainBtn.addEventListener('click', function() {
+          self._goToPreviousQuestion();
+        });
+      }
+    },
+
+    /** Build rich explanation HTML for a question */
+    _buildExplanationHTML: function(q) {
+      var html = '';
+      var exp = q.explanation || q.exp;
+      var ref = q.textbookReference || q.ref;
+      var kp = q.knowledgePoint || q.kp;
+      if (exp || ref || kp) {
+        html += '<div class="study-explanation">';
+        if (kp) html += '<span class="study-exp-label exp-knowledge">知识点</span><strong>' + _esc(kp) + '</strong><br>';
+        if (exp) html += '💡 ' + _esc(exp);
+        if (exp && ref) html += '<br>';
+        if (ref) html += '<span class="study-exp-label exp-reference">📚 参考</span>' + _esc(ref);
+        html += '</div>';
+      }
+      return html;
     },
 
     _handleAnswer: function(letter, qId, q) {
@@ -569,6 +675,15 @@
 
       this._recordAnswer(isCorrect);
 
+      // Record in history for back-navigation
+      this._questionHistory.push({
+        index: this._questionIndex,
+        letter: letter,
+        isCorrect: isCorrect,
+        skipped: false,
+        qId: qId
+      });
+
       // Highlight options
       var optBtns = document.querySelectorAll('#study-options .study-option-btn');
       for (var i = 0; i < optBtns.length; i++) {
@@ -581,31 +696,39 @@
         }
       }
 
-      // Show feedback
+      // Show feedback with answer comparison + rich explanation
       var fbArea = document.getElementById('study-feedback-area');
       if (fbArea) {
         var fbHtml = '<div class="study-feedback ' + (isCorrect ? 'correct-fb' : 'wrong-fb') + '">';
         if (isCorrect) {
           fbHtml += '✅ 回答正确！';
         } else {
-          fbHtml += '❌ 回答错误！正确答案：<strong>' + correctLetters.join(', ') + '</strong>';
+          fbHtml += '❌ 回答错误';
         }
         fbHtml += '</div>';
 
-        // Explanation
-        var exp = q.explanation || q.exp;
-        var ref = q.textbookReference || q.ref;
-        if (exp || ref) {
-          fbHtml += '<div class="study-explanation">';
-          if (exp) fbHtml += '💡 ' + _esc(exp);
-          if (exp && ref) fbHtml += '<br>';
-          if (ref) fbHtml += '📚 参考：' + _esc(ref);
-          fbHtml += '</div>';
+        // Answer comparison (wrong answers only)
+        if (!isCorrect) {
+          fbHtml += '<div class="study-answer-compare">' +
+            '<div class="study-answer-badge your-answer">' +
+              '<div class="study-answer-badge-label">你的答案</div>' +
+              '<div class="study-answer-badge-value">' + _esc(letter) + '</div>' +
+            '</div>' +
+            '<div class="study-answer-badge correct-answer">' +
+              '<div class="study-answer-badge-label">正确答案</div>' +
+              '<div class="study-answer-badge-value">' + correctLetters.join(', ') + '</div>' +
+            '</div>' +
+            '</div>';
         }
 
-        fbHtml += '<button class="study-continue-btn" id="study-continue-btn">' +
-          (this._questionIndex + 1 >= this._questions.length ? '完成 · 查看总结 →' : '下一题 →') +
-          '</button>';
+        // Rich explanation
+        fbHtml += self._buildExplanationHTML(q);
+
+        fbHtml += '<div class="study-nav-buttons">' +
+          '<button class="study-continue-btn" id="study-continue-btn">' +
+            (this._questionIndex + 1 >= this._questions.length ? '完成 · 查看总结 →' : '下一题 →') +
+          '</button>' +
+          '</div>';
 
         fbArea.innerHTML = fbHtml;
 
@@ -693,6 +816,7 @@
         self._sessionCorrect = 0;
         self._sessionAnswered = 0;
         self._sessionWrongIds = [];
+        self._questionHistory = [];
         self._renderQuestion();
       });
 
@@ -702,6 +826,7 @@
         self._sessionCorrect = 0;
         self._sessionAnswered = 0;
         self._sessionWrongIds = [];
+        self._questionHistory = [];
         self._renderQuestion();
       });
 
@@ -813,6 +938,15 @@
             if (MediCard.WrongQuestionBook) MediCard.WrongQuestionBook.addWrong(qId);
             self._sessionWrongIds.push(qId);
 
+            // Record timeout in history
+            self._questionHistory.push({
+              index: self._questionIndex,
+              letter: null,
+              isCorrect: false,
+              skipped: true,
+              qId: qId
+            });
+
             // Show correct answer
             var correctLetters = self._currentShuffled
               .filter(function(o) { return o.isCorrect; })
@@ -830,9 +964,12 @@
             if (fbArea) {
               fbArea.innerHTML = '' +
                 '<div class="study-feedback wrong-fb">⏰ 时间到！正确答案：<strong>' + correctLetters.join(', ') + '</strong></div>' +
+                self._buildExplanationHTML(q) +
+                '<div class="study-nav-buttons">' +
                 '<button class="study-continue-btn" id="study-continue-btn">' +
                   (self._questionIndex + 1 >= self._questions.length ? '完成 · 查看总结 →' : '下一题 →') +
-                '</button>';
+                '</button>' +
+                '</div>';
               var contBtn = document.getElementById('study-continue-btn');
               if (contBtn) contBtn.addEventListener('click', function() {
                 self._questionIndex++;

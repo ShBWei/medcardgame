@@ -229,6 +229,7 @@
         '<div class="study-options" id="study-options">' + optHTML + '</div>' +
         '<div id="study-feedback-area"></div>' +
         '<div class="study-toolbar">' +
+          '<button class="study-toolbar-btn" id="study-prev-btn" style="display:none">← 上一题</button>' +
           '<button class="study-toolbar-btn" id="study-bookmark-btn">☆ 收藏</button>' +
           '<button class="study-toolbar-btn" id="study-flag-btn">🚩 质疑</button>' +
           '<button class="study-toolbar-btn" id="study-skip-btn">⏭ 跳过</button>' +
