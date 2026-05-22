@@ -1,0 +1,772 @@
+/**
+ * MediCard FastLearn 快学模式 — Styles
+ * Reuses --s-* theme variables from study themes
+ * All classes prefixed with fl- to avoid collisions
+ */
+
+/* ================================================================
+ * Dashboard Layout
+ * ================================================================ */
+.fl-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.fl-hero-card {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.18), rgba(16, 185, 129, 0.18));
+  border: 1px solid var(--s-border);
+  border-radius: var(--s-radius);
+  padding: 24px;
+  text-align: center;
+}
+
+.fl-hero-icon {
+  font-size: 48px;
+  margin-bottom: 8px;
+}
+
+.fl-hero-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--s-text);
+  margin: 0 0 4px;
+}
+
+.fl-hero-sub {
+  font-size: 13px;
+  color: var(--s-text2);
+  margin: 0 0 16px;
+}
+
+/* Stats row */
+.fl-stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+.fl-stat-card {
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+  border-radius: var(--s-radius);
+  padding: 14px 10px;
+  text-align: center;
+}
+
+.fl-stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--s-accent);
+  line-height: 1.2;
+}
+
+.fl-stat-label {
+  font-size: 11px;
+  color: var(--s-text2);
+  margin-top: 2px;
+}
+
+/* Action button */
+.fl-btn-start {
+  display: block;
+  width: 100%;
+  padding: 14px;
+  font-size: 17px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #6366f1, #10b981);
+  border: none;
+  border-radius: var(--s-radius);
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3);
+}
+.fl-btn-start:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(99, 102, 241, 0.4); }
+.fl-btn-start:active { transform: translateY(0); }
+.fl-btn-start:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+/* ================================================================
+ * Subject Selection
+ * ================================================================ */
+.fl-subject-select {
+  padding: 16px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.fl-subject-header {
+  text-align: center;
+  margin-bottom: 14px;
+}
+
+.fl-subject-header h3 {
+  font-size: 18px;
+  color: var(--s-text);
+  margin: 0 0 4px;
+}
+
+.fl-subject-header p {
+  font-size: 13px;
+  color: var(--s-text2);
+  margin: 0;
+}
+
+.fl-subject-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.fl-subject-card {
+  background: var(--s-surface);
+  border: 2px solid var(--s-border);
+  border-radius: var(--s-radius);
+  padding: 14px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  position: relative;
+}
+
+.fl-subject-card.selected {
+  border-color: var(--s-accent);
+  background: var(--s-accent-soft);
+}
+
+.fl-subject-card-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--s-text);
+}
+
+.fl-subject-card-count {
+  font-size: 12px;
+  color: var(--s-text2);
+  margin-top: 2px;
+}
+
+.fl-subject-card-check {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--s-border);
+  background: transparent;
+  transition: all 0.2s;
+}
+
+.fl-subject-card.selected .fl-subject-card-check {
+  background: var(--s-accent);
+  border-color: var(--s-accent);
+}
+
+.fl-subject-card.selected .fl-subject-card-check::after {
+  content: '✓';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 11px;
+  color: #fff;
+  font-weight: 700;
+}
+
+.fl-subject-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.fl-subject-actions .fl-btn-start {
+  flex: 1;
+}
+
+.fl-subject-actions .fl-btn-back {
+  padding: 14px 20px;
+  font-size: 15px;
+  color: var(--s-text2);
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+  border-radius: var(--s-radius);
+  cursor: pointer;
+}
+
+/* Question limit selector */
+.fl-limit-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  justify-content: center;
+}
+
+.fl-limit-row label {
+  font-size: 13px;
+  color: var(--s-text2);
+}
+
+.fl-limit-pill {
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--s-text2);
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.fl-limit-pill.active {
+  color: var(--s-accent);
+  border-color: var(--s-accent);
+  background: var(--s-accent-soft);
+}
+
+/* ================================================================
+ * Session Info Bar (top of question view)
+ * ================================================================ */
+.fl-info-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+  border-radius: var(--s-radius);
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.fl-info-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--s-text2);
+}
+
+.fl-info-item .fl-info-icon {
+  font-size: 14px;
+}
+
+.fl-info-item .fl-info-value {
+  font-weight: 600;
+  color: var(--s-text);
+}
+
+/* Memory level badge */
+.fl-memory-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.fl-memory-badge.l0 { background: rgba(150,150,150,0.2); color: var(--s-text3); }
+.fl-memory-badge.l1 { background: rgba(239,68,68,0.15); color: #ef4444; }
+.fl-memory-badge.l2 { background: rgba(249,115,22,0.15); color: #f97316; }
+.fl-memory-badge.l3 { background: rgba(234,179,8,0.15); color: #eab308; }
+.fl-memory-badge.l4 { background: rgba(34,197,94,0.15); color: #22c55e; }
+.fl-memory-badge.l5 { background: rgba(99,102,241,0.15); color: #6366f1; }
+
+/* ================================================================
+ * Session Question Area (wraps study question display)
+ * ================================================================ */
+.fl-question-wrap {
+  position: relative;
+}
+
+/* Error gene indicator on question */
+.fl-error-gene-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  background: rgba(239,68,68,0.12);
+  color: #ef4444;
+  margin-left: 8px;
+}
+
+/* Vulnerability fix banner */
+.fl-vuln-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(239,68,68,0.12), rgba(249,115,22,0.12));
+  border: 1px solid rgba(239,68,68,0.25);
+  border-radius: var(--s-radius);
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: var(--s-text);
+}
+
+.fl-vuln-banner .fl-vuln-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.fl-vuln-banner .fl-vuln-text {
+  flex: 1;
+  line-height: 1.4;
+}
+
+.fl-vuln-banner .fl-vuln-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--s-text3);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px;
+}
+
+/* ================================================================
+ * Session Report
+ * ================================================================ */
+.fl-report {
+  padding: 16px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.fl-report-hero {
+  text-align: center;
+  padding: 24px 16px;
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+  border-radius: var(--s-radius);
+  margin-bottom: 14px;
+}
+
+.fl-report-grade {
+  font-size: 56px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.fl-report-grade.a { color: #22c55e; }
+.fl-report-grade.b { color: #6366f1; }
+.fl-report-grade.c { color: #eab308; }
+.fl-report-grade.d { color: #f97316; }
+.fl-report-grade.f { color: #ef4444; }
+
+.fl-report-summary {
+  font-size: 15px;
+  color: var(--s-text);
+  margin-top: 6px;
+}
+
+.fl-report-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.fl-report-stat {
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+  border-radius: var(--s-radius);
+  padding: 14px;
+  text-align: center;
+}
+
+.fl-report-stat-val {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--s-accent);
+}
+
+.fl-report-stat-lbl {
+  font-size: 11px;
+  color: var(--s-text2);
+  margin-top: 2px;
+}
+
+/* Weakest points list */
+.fl-report-section {
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+  border-radius: var(--s-radius);
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.fl-report-section h4 {
+  font-size: 14px;
+  color: var(--s-text);
+  margin: 0 0 10px;
+}
+
+.fl-weak-point {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--s-accent-soft);
+  margin-bottom: 6px;
+}
+
+.fl-weak-point-rank {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--s-accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.fl-weak-point-info {
+  flex: 1;
+}
+
+.fl-weak-point-name {
+  font-size: 13px;
+  color: var(--s-text);
+  font-weight: 500;
+}
+
+.fl-weak-point-bar-wrap {
+  height: 4px;
+  background: var(--s-progress-bg);
+  border-radius: 2px;
+  margin-top: 4px;
+}
+
+.fl-weak-point-bar {
+  height: 100%;
+  background: var(--s-wrong);
+  border-radius: 2px;
+}
+
+.fl-weak-point-pct {
+  font-size: 12px;
+  color: var(--s-wrong);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* Report actions */
+.fl-report-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.fl-report-actions .fl-btn-start { flex: 1; }
+
+.fl-report-actions .fl-btn-dashboard {
+  padding: 14px 20px;
+  font-size: 15px;
+  color: var(--s-text2);
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+  border-radius: var(--s-radius);
+  cursor: pointer;
+}
+
+/* ================================================================
+ * Feynman Check
+ * ================================================================ */
+.fl-feynman-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.fl-feynman-card {
+  background: var(--s-bg);
+  border: 1px solid var(--s-border);
+  border-radius: var(--s-radius);
+  padding: 24px;
+  max-width: 480px;
+  width: 100%;
+  box-shadow: var(--s-shadow);
+}
+
+.fl-feynman-card h4 {
+  font-size: 16px;
+  color: var(--s-text);
+  margin: 0 0 6px;
+}
+
+.fl-feynman-card p {
+  font-size: 13px;
+  color: var(--s-text2);
+  margin: 0 0 14px;
+  line-height: 1.5;
+}
+
+.fl-feynman-textarea {
+  width: 100%;
+  min-height: 100px;
+  padding: 12px;
+  font-size: 14px;
+  color: var(--s-text);
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+  border-radius: 10px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+
+.fl-feynman-textarea:focus {
+  outline: none;
+  border-color: var(--s-accent);
+}
+
+.fl-feynman-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  justify-content: flex-end;
+}
+
+.fl-feynman-actions button {
+  padding: 8px 18px;
+  font-size: 14px;
+  border-radius: var(--s-radius);
+  cursor: pointer;
+  border: none;
+  font-weight: 600;
+}
+
+.fl-feynman-done {
+  background: var(--s-accent);
+  color: #fff;
+}
+
+.fl-feynman-skip {
+  background: transparent;
+  color: var(--s-text2);
+}
+
+/* ================================================================
+ * Memory Browser
+ * ================================================================ */
+.fl-memory-browser {
+  padding: 16px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.fl-memory-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.fl-memory-header h3 {
+  font-size: 18px;
+  color: var(--s-text);
+  margin: 0;
+}
+
+.fl-memory-filter {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.fl-memory-filter-pill {
+  padding: 5px 12px;
+  font-size: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--s-border);
+  background: var(--s-surface);
+  color: var(--s-text2);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.fl-memory-filter-pill.active {
+  border-color: var(--s-accent);
+  color: var(--s-accent);
+  background: var(--s-accent-soft);
+}
+
+.fl-memory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fl-memory-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+  border-radius: var(--s-radius);
+}
+
+.fl-memory-item-kp {
+  flex: 1;
+  font-size: 13px;
+  color: var(--s-text);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fl-memory-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.fl-memory-item-count {
+  font-size: 11px;
+  color: var(--s-text3);
+}
+
+/* ================================================================
+ * Weekly Plan
+ * ================================================================ */
+.fl-weekly-plan {
+  padding: 16px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.fl-weekly-plan h3 {
+  font-size: 18px;
+  color: var(--s-text);
+  margin: 0 0 14px;
+}
+
+.fl-plan-day {
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+  border-radius: var(--s-radius);
+  padding: 14px;
+  margin-bottom: 8px;
+}
+
+.fl-plan-day-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.fl-plan-day-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--s-text);
+}
+
+.fl-plan-day-count {
+  font-size: 12px;
+  color: var(--s-accent);
+  font-weight: 600;
+}
+
+.fl-plan-day-focus {
+  font-size: 12px;
+  color: var(--s-text2);
+  line-height: 1.4;
+}
+
+.fl-plan-day-focus strong {
+  color: var(--s-accent);
+}
+
+/* ================================================================
+ * Back button (reusable)
+ * ================================================================ */
+.fl-back-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+}
+
+.fl-btn-back-sm {
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--s-text2);
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.fl-btn-back-sm:hover { color: var(--s-text); background: var(--s-surface-hover); }
+
+/* ================================================================
+ * Loading / Skeleton
+ * ================================================================ */
+.fl-loading {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--s-text2);
+}
+
+.fl-skeleton {
+  height: 16px;
+  background: var(--s-surface);
+  border-radius: 8px;
+  animation: fl-shimmer 1.5s ease-in-out infinite;
+  margin-bottom: 10px;
+}
+
+.fl-skeleton.w60 { width: 60%; }
+.fl-skeleton.w80 { width: 80%; }
+.fl-skeleton.w100 { width: 100%; }
+
+@keyframes fl-shimmer {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+/* ================================================================
+ * Mobile Responsive
+ * ================================================================ */
+@media (max-width: 480px) {
+  .fl-stats-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .fl-subject-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .fl-report-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .fl-hero-title { font-size: 19px; }
+  .fl-stat-value { font-size: 20px; }
+  .fl-report-grade { font-size: 44px; }
+  .fl-info-bar { gap: 6px; padding: 6px 10px; }
+}

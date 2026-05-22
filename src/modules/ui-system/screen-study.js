@@ -21,12 +21,18 @@
     _timerRemaining: 0,
     _timerInterval: null,
     _theme: 'forest',
+    _mode: 'slow',           // 'slow' | 'fast' | 'timed'
+    _timedDuration: 30,      // seconds for timed mode countdown
+    _questionStartTime: 0,   // timestamp when question was displayed
+    _questionTimes: [],      // [{ index, ms, correct }] for timed mode stats
+    _fastAdvanceTimeout: null, // setTimeout ID for fast mode auto-advance
 
     // ── Public API ──
 
     render: function() {
       this._loadedMap = {}; // reset for fresh preload check
       this._loadTheme();
+      this._loadMode();
       this._loadSubjectProgress();
       var screen = document.getElementById('screen-study');
       if (!screen) return;
@@ -228,9 +234,11 @@
       this._sessionAnswered = 0;
       this._sessionWrongIds = [];
       this._questionHistory = [];
+      this._questionTimes = [];
       this._answered = false;
-      this._timerOn = false;
+      this._timerOn = (this._mode === 'timed');
       this._stopTimer();
+      if (this._fastAdvanceTimeout) { clearTimeout(this._fastAdvanceTimeout); this._fastAdvanceTimeout = null; }
 
       var questions = MediCard.QuestionLoader.getSubject(subjectId);
       if (questions && questions.length > 0) {
@@ -427,6 +435,79 @@
       } catch(e) { this._theme = 'nightstudy'; }
     },
 
+    _loadMode: function() {
+      try {
+        var m = localStorage.getItem('medicard_study_mode');
+        if (m && ['slow', 'fast', 'timed'].indexOf(m) >= 0) {
+          this._mode = m;
+        }
+        var d = localStorage.getItem('medicard_timed_duration');
+        if (d) this._timedDuration = parseInt(d, 10) || 30;
+      } catch(e) { this._mode = 'slow'; }
+      if (this._mode === 'timed') this._timerOn = true;
+    },
+
+    _saveMode: function() {
+      try { localStorage.setItem('medicard_study_mode', this._mode); } catch(e) {}
+    },
+
+    _buildModeSelectorHTML: function() {
+      var modes = [
+        { id: 'slow', icon: '🐢', label: '慢速刷题' },
+        { id: 'fast', icon: '⚡', label: '快速刷题' },
+        { id: 'timed', icon: '⏱️', label: '计时模式' }
+      ];
+      var html = '<div class="study-mode-selector" id="study-mode-selector">';
+      for (var i = 0; i < modes.length; i++) {
+        var m = modes[i];
+        var active = this._mode === m.id ? ' active' : '';
+        html += '<button class="study-mode-pill' + active + '" data-mode="' + m.id + '">' +
+          '<span class="mode-icon">' + m.icon + '</span>' +
+          '<span class="mode-label">' + m.label + '</span>' +
+          '</button>';
+      }
+      html += '</div>';
+      return html;
+    },
+
+    _buildNavigatorHTML: function() {
+      var total = this._questions.length;
+      var currentIdx = this._questionIndex;
+      var historyMap = {};
+      for (var i = 0; i < this._questionHistory.length; i++) {
+        var h = this._questionHistory[i];
+        historyMap[h.index] = h;
+      }
+      var html = '<div class="study-question-nav-wrap" id="study-nav-wrap"><div class="study-question-nav" id="study-question-nav">';
+      for (var n = 0; n < total; n++) {
+        var cls = 'study-nav-dot';
+        if (n === currentIdx) cls += ' current';
+        var he = historyMap[n];
+        if (he) {
+          if (he.skipped) cls += ' skipped-dot';
+          else if (he.isCorrect) cls += ' correct-dot';
+          else cls += ' wrong-dot';
+        }
+        var q = this._questions[n];
+        var qId = q.id || (this._currentSubject + '_' + n);
+        if (MediCard.WrongQuestionBook && MediCard.WrongQuestionBook.isBookmarked(qId)) {
+          cls += ' bookmarked-dot';
+        }
+        html += '<span class="' + cls + '" data-qidx="' + n + '">' + (n + 1) + '</span>';
+      }
+      html += '</div></div>';
+      return html;
+    },
+
+    _scrollNavigatorToCurrent: function() {
+      var nav = document.getElementById('study-question-nav');
+      if (!nav) return;
+      var currentDot = nav.querySelector('.study-nav-dot.current');
+      if (currentDot) {
+        currentDot.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      }
+    },
+
     _setTheme: function(themeId) {
       this._theme = themeId;
       try { localStorage.setItem('medicard_study_theme', themeId); } catch(e) {}
@@ -538,8 +619,10 @@
             '</span>' +
           '</div>' +
           '<div class="study-question-progress-bar"><div class="study-question-progress-fill" style="width:' + pct + '%;"></div></div>' +
+          this._buildModeSelectorHTML() +
+          this._buildNavigatorHTML() +
           (isMulti ? '<div style="text-align:center;font-size:13px;font-weight:700;color:#fbbf24;margin-bottom:8px;padding:6px;background:rgba(251,191,36,0.1);border-radius:6px;border:1px solid rgba(251,191,36,0.25);">⚠️ 多选题 — 选择所有正确答案后提交</div>' : '') +
-          (this._timerOn ? '<div style="text-align:center;font-size:18px;font-weight:700;color:var(--study-accent);margin-bottom:8px;" id="study-timer-display">30</div>' : '') +
+          (this._timerOn ? '<div style="text-align:center;font-size:18px;font-weight:700;color:var(--study-accent);margin-bottom:8px;" id="study-timer-display">' + this._timedDuration + '</div>' : '') +
           '<div class="study-question-card">' +
             '<div class="study-question-text">' + _esc(q.question || q.q || '') + '</div>' +
             (q.knowledgePoint || q.kp ? '<div class="study-question-meta">📖 ' + _esc(q.knowledgePoint || q.kp) + '</div>' : '') +
@@ -564,11 +647,13 @@
 
       document.getElementById('study-main-area').innerHTML = html;
 
+      this._questionStartTime = Date.now();
       this._attachQuestionEvents(qId, q);
       this._updateHeaderForQuestion();
+      this._scrollNavigatorToCurrent();
 
       if (this._timerOn) {
-        this._startTimer(30);
+        this._startTimer(this._timedDuration);
       }
     },
 
@@ -685,6 +770,48 @@
           });
           self._questionIndex++;
           self._renderQuestion();
+        });
+      }
+
+      // Mode selector clicks
+      var modePills = document.querySelectorAll('#study-mode-selector .study-mode-pill');
+      for (var p = 0; p < modePills.length; p++) {
+        modePills[p].addEventListener('click', function() {
+          var newMode = this.getAttribute('data-mode');
+          if (newMode && newMode !== self._mode) {
+            self._mode = newMode;
+            self._saveMode();
+            if (newMode === 'timed') {
+              self._timerOn = true;
+            } else {
+              self._timerOn = false;
+              self._stopTimer();
+            }
+            // Re-render to update mode selector UI and timer
+            self._renderQuestion();
+          }
+        });
+      }
+
+      // Navigator dot clicks
+      var navDots = document.querySelectorAll('#study-question-nav .study-nav-dot');
+      for (var d = 0; d < navDots.length; d++) {
+        navDots[d].addEventListener('click', function() {
+          var targetIdx = parseInt(this.getAttribute('data-qidx'), 10);
+          if (isNaN(targetIdx) || targetIdx === self._questionIndex) return;
+          self._stopTimer();
+          // Find history entry for target (to restore answered state)
+          var targetHistory = null;
+          for (var hi = 0; hi < self._questionHistory.length; hi++) {
+            if (self._questionHistory[hi].index === targetIdx) { targetHistory = self._questionHistory[hi]; break; }
+          }
+          self._questionIndex = targetIdx;
+          self._renderQuestion();
+          // If target was answered, restore its state after render
+          if (targetHistory) {
+            self._answered = true;
+            setTimeout(function() { self._restoreAnsweredState(targetHistory); }, 50);
+          }
         });
       }
     },
@@ -864,20 +991,41 @@
         // Rich explanation
         fbHtml += self._buildExplanationHTML(q);
 
-        fbHtml += '<div class="study-nav-buttons">' +
-          '<button class="study-continue-btn" id="study-continue-btn">' +
-            (this._questionIndex + 1 >= this._questions.length ? '完成 · 查看总结 →' : '下一题 →') +
-          '</button>' +
-          '</div>';
+        // Record question timing for timed mode
+        var elapsed = self._questionStartTime > 0 ? Date.now() - self._questionStartTime : 0;
+        self._questionTimes.push({ index: self._questionIndex, ms: elapsed, correct: isCorrect });
 
-        fbArea.innerHTML = fbHtml;
-
-        var contBtn = document.getElementById('study-continue-btn');
-        if (contBtn) {
-          contBtn.addEventListener('click', function() {
+        if (self._mode === 'fast') {
+          // Fast mode: auto-advance after brief flash (no continue button)
+          fbArea.innerHTML = fbHtml;
+          // Flash all options briefly
+          var allOpts = document.querySelectorAll('#study-options .study-option-btn');
+          for (var ao = 0; ao < allOpts.length; ao++) {
+            var isOptCorrect = correctLetters.indexOf(allOpts[ao].getAttribute('data-letter')) >= 0;
+            allOpts[ao].classList.add(isOptCorrect ? 'fast-correct-flash' : 'fast-wrong-flash');
+          }
+          if (self._fastAdvanceTimeout) clearTimeout(self._fastAdvanceTimeout);
+          self._fastAdvanceTimeout = setTimeout(function() {
             self._questionIndex++;
             self._renderQuestion();
-          });
+          }, 800);
+        } else {
+          // Slow/timed mode: show continue button
+          fbHtml += '<div class="study-nav-buttons">' +
+            '<button class="study-continue-btn" id="study-continue-btn">' +
+              (self._questionIndex + 1 >= self._questions.length ? '完成 · 查看总结 →' : '下一题 →') +
+            '</button>' +
+            '</div>';
+
+          fbArea.innerHTML = fbHtml;
+
+          var contBtn = document.getElementById('study-continue-btn');
+          if (contBtn) {
+            contBtn.addEventListener('click', function() {
+              self._questionIndex++;
+              self._renderQuestion();
+            });
+          }
         }
       }
 
@@ -908,6 +1056,41 @@
       var newWrongCount = this._sessionWrongIds.length;
       var totalWrongCount = MediCard.WrongQuestionBook ? MediCard.WrongQuestionBook.getCount('wrong') : 0;
 
+      // Build timing stats for timed mode
+      var timingStatsHTML = '';
+      if (this._mode === 'timed' && this._questionTimes.length > 0) {
+        var times = this._questionTimes;
+        var totalMs = 0, fastest = Infinity, slowest = 0, timeoutCount = 0;
+        for (var t = 0; t < times.length; t++) {
+          totalMs += times[t].ms;
+          if (times[t].ms < fastest) fastest = times[t].ms;
+          if (times[t].ms > slowest) slowest = times[t].ms;
+          if (times[t].ms >= this._timedDuration * 1000) timeoutCount++;
+        }
+        var avgSec = (totalMs / times.length / 1000).toFixed(1);
+        var fastSec = fastest < Infinity ? (fastest / 1000).toFixed(1) : '--';
+        var slowSec = slowest > 0 ? (slowest / 1000).toFixed(1) : '--';
+        timingStatsHTML = '' +
+          '<div class="study-summary-stats" style="margin-top:8px;">' +
+            '<div class="study-summary-stat">' +
+              '<div class="study-stat-value">' + avgSec + 's</div>' +
+              '<div class="study-stat-label">平均用时</div>' +
+            '</div>' +
+            '<div class="study-summary-stat">' +
+              '<div class="study-stat-value">' + fastSec + 's</div>' +
+              '<div class="study-stat-label">最快</div>' +
+            '</div>' +
+            '<div class="study-summary-stat">' +
+              '<div class="study-stat-value">' + slowSec + 's</div>' +
+              '<div class="study-stat-label">最慢</div>' +
+            '</div>' +
+            (timeoutCount > 0 ? '<div class="study-summary-stat">' +
+              '<div class="study-stat-value">' + timeoutCount + '</div>' +
+              '<div class="study-stat-label">超时次数</div>' +
+            '</div>' : '') +
+          '</div>';
+      }
+
       var html = '' +
         '<div class="study-summary">' +
           '<div class="study-summary-icon">' + icon + '</div>' +
@@ -927,6 +1110,7 @@
               '<div class="study-stat-label">新增错题（总计' + totalWrongCount + '）</div>' +
             '</div>' +
           '</div>' +
+          timingStatsHTML +
           '<div class="study-summary-actions">' +
             '<button class="study-action-btn primary" id="study-retry">🔄 重新刷题</button>' +
             '<button class="study-action-btn primary" id="study-continue">▶ 继续未答</button>' +
@@ -1125,6 +1309,10 @@
       if (this._timerInterval) {
         clearInterval(this._timerInterval);
         this._timerInterval = null;
+      }
+      if (this._fastAdvanceTimeout) {
+        clearTimeout(this._fastAdvanceTimeout);
+        this._fastAdvanceTimeout = null;
       }
     },
 

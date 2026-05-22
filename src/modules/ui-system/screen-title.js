@@ -208,6 +208,7 @@
           '<button class="btn btn-ghost btn-sm" id="btn-logout">切换账号</button>' +
         '</div>' +
         '<div class="title-menu stagger-children">' +
+          '<button class="btn btn-fastlearn btn-lg" id="btn-fastlearn" style="background:linear-gradient(135deg, #6366f1, #10b981);color:#fff;box-shadow:0 4px 20px rgba(99,102,241,0.35);">🧠 快学模式</button>' +
           '<button class="btn btn-primary btn-lg" id="btn-single">⚔️ 单人练习</button>' +
           '<button class="btn btn-gold btn-lg" id="btn-multi">🌐 联机对战</button>' +
           '<button class="btn btn-study btn-lg" id="btn-study" style="background:linear-gradient(135deg, #06b6d4, #10b981);color:#fff;">📖 医途刷题工坊</button>' +
@@ -225,6 +226,11 @@
 
       if (btnSingle) btnSingle.addEventListener('click', function(e) { window._medicardGoSingle(); });
       if (btnMulti) btnMulti.addEventListener('click', function(e) { window._medicardGoMulti(); });
+      var btnFastLearn = document.getElementById('btn-fastlearn');
+      if (btnFastLearn) btnFastLearn.addEventListener('click', function(e) {
+        MediCard.Audio.playButtonClick();
+        MediCard.GameState.goToScreen('fastlearn');
+      });
       var btnStudy = document.getElementById('btn-study');
       if (btnStudy) btnStudy.addEventListener('click', function(e) {
         MediCard.Audio.playButtonClick();

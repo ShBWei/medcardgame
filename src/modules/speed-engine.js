@@ -284,6 +284,18 @@
       var m = meta[study._currentSubject] || {};
       var subjectName = m.name || study._currentSubject;
 
+      // Build mode selector HTML
+      var modeHTML = '';
+      if (study._buildModeSelectorHTML) {
+        modeHTML = study._buildModeSelectorHTML();
+      }
+
+      // Build navigator HTML
+      var navHTML = '';
+      if (study._buildNavigatorHTML) {
+        navHTML = study._buildNavigatorHTML();
+      }
+
       return '' +
         '<div class="study-question-header">' +
           '<span class="study-question-num">' + subjectName + ' · 第' + (idx + 1) + '/' + total + '题</span>' +
@@ -292,7 +304,9 @@
           '</span>' +
         '</div>' +
         '<div class="study-question-progress-bar"><div class="study-question-progress-fill" style="width:' + pct + '%;"></div></div>' +
-        (study._timerOn ? '<div style="text-align:center;font-size:18px;font-weight:700;color:var(--s-accent);margin-bottom:8px;" id="study-timer-display">30</div>' : '');
+        modeHTML +
+        navHTML +
+        (study._timerOn ? '<div style="text-align:center;font-size:18px;font-weight:700;color:var(--s-accent);margin-bottom:8px;" id="study-timer-display">' + (study._timedDuration || 30) + '</div>' : '');
     },
 
     /** Fast render from cached HTML: header string + cached bodyHTML, one innerHTML call */
@@ -302,6 +316,7 @@
       study._currentShuffled = cached.shuffledOptions;
       study._currentIsMulti = !!cached.isMulti;
       this._questionDisplayTime = Date.now();
+      study._questionStartTime = Date.now();
 
       var mainArea = document.getElementById('study-main-area');
       if (!mainArea) return;
@@ -323,8 +338,11 @@
       // Update header state
       if (study._updateHeaderForQuestion) study._updateHeaderForQuestion();
 
+      // Scroll navigator to current question
+      if (study._scrollNavigatorToCurrent) study._scrollNavigatorToCurrent();
+
       // Start timer if needed
-      if (study._timerOn && study._startTimer) study._startTimer(30);
+      if (study._timerOn && study._startTimer) study._startTimer(study._timedDuration || 30);
     },
 
     /**
@@ -458,6 +476,49 @@
           }
           study._questionIndex++;
           study._renderQuestion();
+          return;
+        }
+
+        // Mode selector pill click
+        var modePill = e.target.closest('.study-mode-pill');
+        if (modePill) {
+          var newMode = modePill.getAttribute('data-mode');
+          if (newMode && newMode !== study._mode) {
+            study._mode = newMode;
+            if (study._saveMode) study._saveMode();
+            if (newMode === 'timed') {
+              study._timerOn = true;
+            } else {
+              study._timerOn = false;
+              study._stopTimer();
+            }
+            study._renderQuestion();
+          }
+          return;
+        }
+
+        // Navigator dot click
+        var navDot = e.target.closest('.study-nav-dot');
+        if (navDot) {
+          var targetIdx = parseInt(navDot.getAttribute('data-qidx'), 10);
+          if (isNaN(targetIdx) || targetIdx === study._questionIndex) return;
+          study._stopTimer();
+          // Find history entry for target
+          var targetHistory = null;
+          if (study._questionHistory) {
+            for (var hi = 0; hi < study._questionHistory.length; hi++) {
+              if (study._questionHistory[hi].index === targetIdx) { targetHistory = study._questionHistory[hi]; break; }
+            }
+          }
+          study._questionIndex = targetIdx;
+          study._renderQuestion();
+          // Restore answered state if target was already answered
+          if (targetHistory) {
+            study._answered = true;
+            setTimeout(function() {
+              if (study._restoreAnsweredState) study._restoreAnsweredState(targetHistory);
+            }, 50);
+          }
           return;
         }
       });

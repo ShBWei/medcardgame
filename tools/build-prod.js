@@ -31,6 +31,7 @@ const CSS_FILES = [
   'screens/screen-battle.css',
   'screens/screen-notebook.css',
   'screens/screen-study.css',
+  'screens/screen-fastlearn.css',
   'animations/keyframes.css',
   'animations/transitions.css',
   'animations/particle-effects.css',
@@ -52,9 +53,12 @@ const JS_FILES = [
   // Question bank
   'question-bank/question-loader.js',
   'question-bank/wrong-question-book.js',
+  // FastLearn (must load before UI screens)
+  'fastlearn/fastlearn-core.js',
   // UI screens (early, referenced by others)
   'ui-system/screen-notebook.js',
   'ui-system/screen-study.js',
+  'ui-system/screen-fastlearn.js',
   // Game core
   'game-core/resource-system.js',
   'game-core/victory-condition.js',

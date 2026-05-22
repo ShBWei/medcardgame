@@ -28,6 +28,7 @@
         '<div class="screen" id="screen-result"></div>' +
         '<div class="screen" id="screen-notebook"></div>' +
         '<div class="screen" id="screen-study"></div>' +
+        '<div class="screen" id="screen-fastlearn"></div>' +
         // Particle container for effects
         '<div class="particle-container" id="particles"></div>';
 
@@ -92,6 +93,11 @@
                   MediCard.ScreenStudy.render();
                 });
               }
+            }
+            break;
+          case 'fastlearn':
+            if (MediCard.ScreenFastLearn && MediCard.ScreenFastLearn.render) {
+              MediCard.ScreenFastLearn.render();
             }
             break;
           case 'result':
