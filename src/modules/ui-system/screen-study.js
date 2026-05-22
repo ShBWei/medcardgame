@@ -776,6 +776,10 @@
       var self = this;
       this._sessionAnswered++;
 
+      // Defensive: normalize string → array (from legacy callers)
+      if (typeof selectedLetters === 'string') selectedLetters = [selectedLetters];
+      if (!Array.isArray(selectedLetters)) selectedLetters = [];
+
       var correctLetters = this._currentShuffled
         .filter(function(o) { return o.isCorrect; })
         .map(function(o) { return o.letter; });

@@ -218,15 +218,18 @@
       var qText = q.question || q.q || '';
       var kp = q.knowledgePoint || q.kp || '';
       var diff = q.difficulty || '';
+      var isMulti = q.questionType === 'multiple';
       var qId = q.id || (study._currentSubject + '_' + questionIndex);
 
       // Pre-build the entire body HTML (everything under the progress header)
       var bodyHTML = '' +
+        (isMulti ? '<div style="text-align:center;font-size:13px;font-weight:700;color:#fbbf24;margin-bottom:8px;padding:6px;background:rgba(251,191,36,0.1);border-radius:6px;border:1px solid rgba(251,191,36,0.25);">⚠️ 多选题 — 选择所有正确答案后提交</div>' : '') +
         '<div class="study-question-card">' +
           '<div class="study-question-text">' + _esc(qText) + '</div>' +
           (kp ? '<div class="study-question-meta">📖 ' + _esc(kp) + '</div>' : '') +
         '</div>' +
         '<div class="study-options" id="study-options">' + optHTML + '</div>' +
+        (isMulti ? '<div style="text-align:center;margin-top:10px;"><button class="study-continue-btn" id="multi-submit-btn" style="display:none;min-width:200px;">提交答案</button></div>' : '') +
         '<div id="study-feedback-area"></div>' +
         '<div class="study-toolbar">' +
           '<button class="study-toolbar-btn" id="study-prev-btn" style="display:none">← 上一题</button>' +
@@ -240,7 +243,8 @@
         shuffledOptions: shuffledOptions,
         id: qId,
         difficulty: diff,
-        knowledgePoint: kp
+        knowledgePoint: kp,
+        isMulti: isMulti
       };
 
       this._memSet(study._currentSubject, questionIndex, cached);
@@ -249,7 +253,7 @@
       try {
         var lcKey = 'q_' + study._currentSubject + '_' + questionIndex;
         this._localCache.set(lcKey, {
-          s: shuffledOptions, i: qId, d: diff, k: kp, q: qText
+          s: shuffledOptions, i: qId, d: diff, k: kp, q: qText, m: isMulti
         });
       } catch(e) {}
 
@@ -283,7 +287,9 @@
       return '' +
         '<div class="study-question-header">' +
           '<span class="study-question-num">' + subjectName + ' · 第' + (idx + 1) + '/' + total + '题</span>' +
-          '<span>' + (cached.difficulty === 'rare' ? '🔷' : cached.difficulty === 'epic' ? '💎' : '') + '</span>' +
+          '<span>' + (cached.difficulty === 'rare' ? '🔷' : cached.difficulty === 'epic' ? '💎' : '') +
+            (cached.isMulti ? ' <span style="display:inline-block;background:#fbbf24;color:#1c1917;font-size:11px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;">多选</span>' : '') +
+          '</span>' +
         '</div>' +
         '<div class="study-question-progress-bar"><div class="study-question-progress-fill" style="width:' + pct + '%;"></div></div>' +
         (study._timerOn ? '<div style="text-align:center;font-size:18px;font-weight:700;color:var(--s-accent);margin-bottom:8px;" id="study-timer-display">30</div>' : '');
@@ -294,6 +300,7 @@
       study._answered = false;
       study._stopTimer();
       study._currentShuffled = cached.shuffledOptions;
+      study._currentIsMulti = !!cached.isMulti;
       this._questionDisplayTime = Date.now();
 
       var mainArea = document.getElementById('study-main-area');
@@ -328,30 +335,83 @@
      * Only installed once per session.
      */
     _ensureDelegation: function(study) {
-      if (this._delegationAttached) return;
+      if (this._delegationAttached) {
+        // Reset multi-select state on every render
+        this._multiSelected = {};
+        return;
+      }
 
       var mainArea = document.getElementById('study-main-area');
       if (!mainArea) return;
 
       var self = this;
+      this._multiSelected = {};
+
       mainArea.addEventListener('click', function(e) {
-        // Option button click
-        var optBtn = e.target.closest('.study-option-btn');
-        if (optBtn && !study._answered) {
+        var isMulti = study._currentIsMulti;
+
+        // Multi-submit button click
+        var multiSubmitBtn = e.target.closest('#multi-submit-btn');
+        if (multiSubmitBtn && !study._answered && isMulti) {
+          var selectedLetters = Object.keys(self._multiSelected);
+          if (selectedLetters.length === 0) return;
           study._answered = true;
           study._stopTimer();
-          // Measure inter-question time (from display to answer)
           if (self._questionDisplayTime > 0) {
             var elapsed = Date.now() - self._questionDisplayTime;
             self._interQuestionTimes.push(elapsed);
             if (self._interQuestionTimes.length > 30) self._interQuestionTimes.shift();
             self._adaptWindow();
           }
-          var letter = optBtn.getAttribute('data-letter');
+          var btns = mainArea.querySelectorAll('#study-options .study-option-btn');
+          for (var b = 0; b < btns.length; b++) btns[b].disabled = true;
+          multiSubmitBtn.disabled = true;
           var q = study._questions[study._questionIndex];
           var qId = q.id || (study._currentSubject + '_' + study._questionIndex);
-          study._handleAnswer(letter, qId, q);
+          study._handleAnswer(selectedLetters, qId, q);
           return;
+        }
+
+        // Option button click
+        var optBtn = e.target.closest('.study-option-btn');
+        if (optBtn && !study._answered) {
+          if (isMulti) {
+            // Multi-select: toggle selection
+            var letter = optBtn.getAttribute('data-letter');
+            if (self._multiSelected[letter]) {
+              delete self._multiSelected[letter];
+              optBtn.classList.remove('study-option-selected');
+              optBtn.style.background = '';
+              optBtn.style.borderColor = '';
+            } else {
+              self._multiSelected[letter] = true;
+              optBtn.classList.add('study-option-selected');
+              optBtn.style.background = 'rgba(6,182,212,0.2)';
+              optBtn.style.borderColor = '#06b6d4';
+            }
+            var count = Object.keys(self._multiSelected).length;
+            var submitBtn = document.getElementById('multi-submit-btn');
+            if (submitBtn) {
+              submitBtn.style.display = count > 0 ? '' : 'none';
+              submitBtn.textContent = '提交答案（已选' + count + '项）';
+            }
+            return;
+          } else {
+            // Single-select: immediate submit
+            study._answered = true;
+            study._stopTimer();
+            if (self._questionDisplayTime > 0) {
+              var t = Date.now() - self._questionDisplayTime;
+              self._interQuestionTimes.push(t);
+              if (self._interQuestionTimes.length > 30) self._interQuestionTimes.shift();
+              self._adaptWindow();
+            }
+            var sl = optBtn.getAttribute('data-letter');
+            var sq = study._questions[study._questionIndex];
+            var sqId = sq.id || (study._currentSubject + '_' + study._questionIndex);
+            study._handleAnswer([sl], sqId, sq);
+            return;
+          }
         }
 
         // Bookmark button
@@ -371,7 +431,7 @@
         if (flagBtn && !flagBtn.disabled) {
           var q2 = study._questions[study._questionIndex];
           var flagQId = q2 ? (q2.id || (study._currentSubject + '_' + study._questionIndex)) : (study._currentSubject + '_' + study._questionIndex);
-          study._flagQuestion(flagQId);
+          if (study._flagQuestion) study._flagQuestion(flagQId);
           flagBtn.classList.add('flagged');
           flagBtn.textContent = '✅ 已质疑';
           flagBtn.disabled = true;
@@ -384,6 +444,18 @@
           study._stopTimer();
           study._sessionAnswered++;
           study._recordAnswer(false);
+          // Record skip in history for back-navigation
+          if (study._questionHistory) {
+            var skq = study._questions[study._questionIndex];
+            var skqId = skq ? (skq.id || (study._currentSubject + '_' + study._questionIndex)) : (study._currentSubject + '_' + study._questionIndex);
+            study._questionHistory.push({
+              index: study._questionIndex,
+              letter: null,
+              isCorrect: false,
+              skipped: true,
+              qId: skqId
+            });
+          }
           study._questionIndex++;
           study._renderQuestion();
           return;
