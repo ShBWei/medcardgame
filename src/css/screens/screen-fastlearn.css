@@ -753,20 +753,53 @@
  * Mobile Responsive
  * ================================================================ */
 @media (max-width: 480px) {
-  .fl-stats-row {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .fl-subject-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .fl-report-stats {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .fl-hero-title { font-size: 19px; }
+  .fl-dashboard { padding: 10px; gap: 10px; }
+  .fl-stats-row { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+  .fl-stat-card { padding: 10px 8px; }
   .fl-stat-value { font-size: 20px; }
+  .fl-stat-label { font-size: 10px; }
+
+  .fl-hero-card { padding: 16px; }
+  .fl-hero-icon { font-size: 36px; }
+  .fl-hero-title { font-size: 19px; }
+  .fl-hero-sub { font-size: 12px; }
+
+  .fl-subject-grid { grid-template-columns: 1fr; gap: 8px; }
+  .fl-subject-card { padding: 12px; }
+  .fl-subject-card-name { font-size: 14px; }
+
+  .fl-limit-row { flex-wrap: wrap; gap: 4px; }
+  .fl-limit-pill { padding: 4px 10px; font-size: 12px; }
+
+  .fl-subject-actions { flex-direction: column; gap: 8px; }
+  .fl-report-stats { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+  .fl-report-stat { padding: 10px; }
+  .fl-report-stat-val { font-size: 18px; }
   .fl-report-grade { font-size: 44px; }
-  .fl-info-bar { gap: 6px; padding: 6px 10px; }
+
+  .fl-info-bar { gap: 6px; padding: 6px 10px; flex-wrap: wrap; }
+  .fl-info-item { font-size: 11px; }
+
+  .fl-report { padding: 10px; }
+  .fl-report-hero { padding: 16px; }
+  .fl-report-actions { flex-direction: column; gap: 8px; }
+  .fl-report-section { padding: 12px; }
+
+  .fl-memory-browser { padding: 10px; }
+  .fl-weekly-plan { padding: 10px; }
+
+  .fl-feynman-card { padding: 16px; margin: 10px; }
+  .fl-feynman-textarea { min-height: 80px; }
+  .fl-feynman-actions { flex-direction: column; }
+  .fl-feynman-actions button { width: 100%; }
+
+  .fl-back-bar { padding: 8px 12px; gap: 6px; }
+}
+
+@media (max-width: 360px) {
+  .fl-hero-title { font-size: 17px; }
+  .fl-stat-value { font-size: 18px; }
+  .fl-report-grade { font-size: 38px; }
+  .fl-info-item { font-size: 10px; }
+  .fl-btn-start { padding: 12px; font-size: 15px; }
 }

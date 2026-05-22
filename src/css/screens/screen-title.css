@@ -7,10 +7,12 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: safe center;
   gap: var(--space-xl);
   padding: var(--space-lg);
+  padding-top: max(var(--space-lg), env(safe-area-inset-top));
   text-align: center;
+  min-height: 100%;
 }
 
 /* Logo area */
@@ -139,22 +141,26 @@
 @media (max-width: 480px) {
   #screen-title {
     padding: var(--space-md);
-    gap: var(--space-lg);
+    padding-top: max(var(--space-md), env(safe-area-inset-top));
+    gap: var(--space-md);
+    justify-content: flex-start;
+    min-height: 100%;
   }
-  .title-logo-icon { font-size: 52px; }
-  .title-game-name { font-size: 26px; }
+  .title-logo-icon { font-size: 48px; }
+  .title-game-name { font-size: 24px; }
   .title-subtitle { font-size: 12px; }
   .title-version { font-size: 10px; }
-  .title-menu { max-width: 260px; gap: var(--space-sm); }
-  .title-menu .btn { padding: 12px 0; font-size: 14px; min-height: 46px; }
-  .title-stats { gap: var(--space-md); font-size: 11px; }
+  .title-menu { max-width: 260px; gap: 6px; margin-top: var(--space-sm); }
+  .title-menu .btn { padding: 11px 0; font-size: 13px; min-height: 44px; }
+  .title-stats { gap: var(--space-sm); font-size: 11px; flex-wrap: wrap; justify-content: center; }
 }
 
 @media (max-width: 360px) {
-  .title-logo-icon { font-size: 42px; }
-  .title-game-name { font-size: 22px; }
-  .title-menu { max-width: 230px; }
-  .title-menu .btn { padding: 10px 0; font-size: 13px; min-height: 42px; }
+  .title-logo-icon { font-size: 40px; }
+  .title-game-name { font-size: 20px; }
+  .title-menu { max-width: 230px; gap: 5px; }
+  .title-menu .btn { padding: 10px 0; font-size: 12px; min-height: 40px; }
+  .title-stats { font-size: 10px; }
 }
 
 /* Landscape */
