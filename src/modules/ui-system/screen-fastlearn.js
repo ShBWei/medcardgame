@@ -319,12 +319,15 @@
       var doStart = function() {
         // Get wrong questions for priority boost
         var wrongIds = [];
-        if (MediCard.WrongQuestionBook) {
-          var wrongList = MediCard.WrongQuestionBook.getWrongList ? MediCard.WrongQuestionBook.getWrongList() : [];
-          for (var w = 0; w < wrongList.length; w++) wrongIds.push(wrongList[w]);
-        }
+        try {
+          var wb = MediCard.WrongQuestionBook;
+          if (wb && wb.getAll) {
+            var allWrong = wb.getAll('wrong') || [];
+            for (var w = 0; w < allWrong.length; w++) wrongIds.push(allWrong[w]);
+          }
+        } catch(e) {}
 
-        self._sessionQueue = FL.initSession(self._selectedSubjects, self._limit);
+        self._sessionQueue = FL.initSession(self._selectedSubjects, self._limit, wrongIds);
         self._sessionIndex = 0;
         self._sessionCorrect = 0;
         self._sessionAnswered = 0;

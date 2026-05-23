@@ -539,8 +539,8 @@
      * ======================================================================== */
 
     /** Initialize a new study session */
-    initSession: function(subjectIds, limit) {
-      this._sessionQueue = this.buildSessionQueue(subjectIds, limit);
+    initSession: function(subjectIds, limit, wrongQids) {
+      this._sessionQueue = this.buildSessionQueue(subjectIds, limit, wrongQids);
       this._sessionIndex = 0;
       this._sessionRetrainMap = {}; // qid → timesRetrained
       this._sessionSeenKP = {}; // knowledgePoint → lastSeenIndex
