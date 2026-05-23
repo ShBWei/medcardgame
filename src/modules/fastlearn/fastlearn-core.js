@@ -576,17 +576,21 @@
     },
 
     /** Record a session answer and handle retraining logic */
-    recordSessionAnswer: function(qid, correct, responseMs, questionData) {
+    recordSessionAnswer: function(qid, correct, responseMs, questionData, errorGene) {
       var item = this._sessionQueue[this._sessionIndex];
       var kp = questionData ? (questionData.knowledgePoint || questionData.kp || '') : '';
       var sid = item ? item.subjectId : '';
-      var errorGene = null;
+      errorGene = errorGene || null;
 
-      if (!correct && questionData) {
-        var userAnswer = ''; // filled by caller
-        var correctAnswer = (questionData.correctAnswers || questionData.ans || []).join(',');
-        var analysis = this.analyzeError(qid, userAnswer, correctAnswer, questionData);
-        errorGene = analysis.genes[0] || 'other';
+      if (!correct) {
+        // Use caller-supplied errorGene if provided; otherwise analyze from questionData
+        if (errorGene) {
+          // already computed by caller
+        } else if (questionData) {
+          var correctAnswer = (questionData.correctAnswers || questionData.ans || []).join(',');
+          var analysis = this.analyzeError(qid, '', correctAnswer, questionData);
+          errorGene = analysis.genes[0] || 'other';
+        }
 
         // Check for retraining
         var retrainCount = this._sessionRetrainMap[qid] || 0;

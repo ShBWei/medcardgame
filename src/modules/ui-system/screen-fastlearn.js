@@ -376,26 +376,36 @@
 
       var rawOpts = q.options || q.opts || [];
       var correctRaw = q.correctAnswers || q.ans || [];
+      // Build correctSet — match both letter keys ("C") and numeric indices
+      var correctSet = {};
+      for (var ci = 0; ci < correctRaw.length; ci++) {
+        correctSet[correctRaw[ci]] = true;
+        if (typeof correctRaw[ci] === 'number') correctSet[String(correctRaw[ci])] = true;
+      }
+
+      var labels = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
       var parsedOptions = [];
       for (var o = 0; o < rawOpts.length; o++) {
         var opt = rawOpts[o];
+        var origLetter = labels.charAt(o);
         if (typeof opt === 'string') {
-          parsedOptions.push({ text: opt, isCorrect: correctRaw.indexOf(o) >= 0 });
+          // Strip leading label if present (e.g. "A. text" -> "text")
+          var text = opt.replace(/^[A-Z][.\s、)]\s*/, '');
+          parsedOptions.push({ text: text, isCorrect: !!correctSet[origLetter] || !!correctSet[o] || !!correctSet[String(o)] });
         } else {
-          parsedOptions.push({ text: opt.text || opt.label || '', isCorrect: !!opt.isCorrect });
+          parsedOptions.push({ text: opt.text || opt.label || '', isCorrect: !!opt.isCorrect || !!correctSet[origLetter] || !!correctSet[o] || !!correctSet[String(o)] });
         }
       }
-      var shuffled = [];
-      for (var i = parsedOptions.length - 1; i > 0; i--) {
-        var j = Math.floor(Math.random() * (i + 1));
-        var tmp = parsedOptions[i]; parsedOptions[i] = parsedOptions[j]; parsedOptions[j] = tmp;
-      }
-      shuffled = parsedOptions;
 
-      var labels = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+      // Shuffle options
+      for (var i = parsedOptions.length - 1; i > 0; i--) {
+        var ri = Math.floor(Math.random() * (i + 1));
+        var tmp = parsedOptions[i]; parsedOptions[i] = parsedOptions[ri]; parsedOptions[ri] = tmp;
+      }
+
       this._currentShuffled = [];
-      for (var s = 0; s < shuffled.length; s++) {
-        this._currentShuffled.push({ letter: labels.charAt(s), text: shuffled[s].text, isCorrect: shuffled[s].isCorrect });
+      for (var s = 0; s < parsedOptions.length; s++) {
+        this._currentShuffled.push({ letter: labels.charAt(s), text: parsedOptions[s].text, isCorrect: parsedOptions[s].isCorrect });
       }
 
       var qid = item.qid || q.id || '';
@@ -572,7 +582,7 @@
       }
 
       // Record in FastLearn core
-      var result = FL.recordSessionAnswer(qid, isCorrect, elapsed, q);
+      var result = FL.recordSessionAnswer(qid, isCorrect, elapsed, q, errorGene);
 
       // Highlight options
       var optBtns = document.querySelectorAll('#fl-options .study-option-btn');
