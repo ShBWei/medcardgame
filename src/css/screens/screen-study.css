@@ -766,6 +766,59 @@
 .study-header-btn.active { background: var(--s-accent-soft); border-color: var(--s-accent); color: var(--s-accent); }
 
 /* ================================================================
+ * Mode Tab Bar (Practice / FastLearn)
+ * ================================================================ */
+.study-mode-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 0 4px;
+  position: sticky;
+  top: 60px;
+  z-index: 9;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.study-mode-tab {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1.5px solid var(--s-border);
+  border-radius: 20px;
+  background: var(--s-surface);
+  color: var(--s-text2);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.25s, border-color 0.25s, color 0.25s, transform 0.15s;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.study-mode-tab:hover {
+  background: var(--s-surface-hover);
+  border-color: var(--s-accent);
+}
+
+.study-mode-tab:active { transform: scale(0.96); }
+
+.study-mode-tab.active {
+  background: var(--s-accent-soft);
+  border-color: var(--s-accent);
+  color: var(--s-accent);
+  font-weight: 700;
+}
+
+@media (max-width: 480px) {
+  .study-mode-tabs { top: 56px; margin-bottom: 8px; }
+  .study-mode-tab { padding: 6px 10px; font-size: 12px; min-height: 34px; }
+}
+
+/* ================================================================
  * Subject Grid
  * ================================================================ */
 .study-stats-bar {

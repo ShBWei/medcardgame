@@ -26,6 +26,7 @@
     _questionStartTime: 0,   // timestamp when question was displayed
     _questionTimes: [],      // [{ index, ms, correct }] for timed mode stats
     _fastAdvanceTimeout: null, // setTimeout ID for fast mode auto-advance
+    _currentTab: 'practice',   // 'practice' | 'fastlearn'
 
     // ── Public API ──
 
@@ -103,6 +104,10 @@
               (wrongCount > 0 ? '<button class="study-header-btn" id="study-wrong-btn" title="错题本(' + wrongCount + '题)">📝</button>' : '') +
             '</div>' +
           '</div>' +
+          '<div class="study-mode-tabs" id="study-mode-tabs">' +
+            '<button class="study-mode-tab' + (this._currentTab === 'practice' ? ' active' : '') + '" data-tab="practice">📝 刷题模式</button>' +
+            '<button class="study-mode-tab' + (this._currentTab === 'fastlearn' ? ' active' : '') + '" data-tab="fastlearn">🧠 快学模式</button>' +
+          '</div>' +
           '<div id="study-main-area">' +
             loadStatusHtml +
             statsHtml +
@@ -117,6 +122,7 @@
 
       this._attachSubjectEvents();
       this._attachHeaderEvents();
+      this._attachModeTabEvents();
       this._spawnLightParticles();
 
       // Preload all subjects in parallel (uses localStorage cache when available — instant)
@@ -277,7 +283,65 @@
       this._currentSubject = null;
       this._questions = [];
       this._answered = false;
+      // If in fastlearn tab, switch back to practice
+      if (this._currentTab === 'fastlearn') {
+        this._currentTab = 'practice';
+        var fl = MediCard.ScreenFastLearn;
+        if (fl) {
+          fl._embedded = false;
+          fl._container = 'screen-fastlearn';
+        }
+      }
       this.render();
+    },
+
+    _attachModeTabEvents: function() {
+      var self = this;
+      var tabs = document.querySelectorAll('#study-mode-tabs .study-mode-tab');
+      for (var i = 0; i < tabs.length; i++) {
+        tabs[i].addEventListener('click', function() {
+          var tab = this.getAttribute('data-tab');
+          if (tab === self._currentTab) return;
+          self._switchTab(tab);
+        });
+      }
+    },
+
+    _switchTab: function(tab) {
+      if (tab === 'fastlearn') {
+        this._currentTab = 'fastlearn';
+        this._stopTimer();
+        if (this._fastAdvanceTimeout) { clearTimeout(this._fastAdvanceTimeout); this._fastAdvanceTimeout = null; }
+        var fl = MediCard.ScreenFastLearn;
+        if (fl) {
+          fl._embedded = true;
+          fl._container = 'study-main-area';
+          fl._view = 'dashboard';
+          this._updateTabBarUI();
+          fl.render();
+        }
+      } else {
+        this._currentTab = 'practice';
+        var fl = MediCard.ScreenFastLearn;
+        if (fl) {
+          fl._embedded = false;
+          fl._container = 'screen-fastlearn';
+        }
+        this._updateTabBarUI();
+        this.render();
+      }
+    },
+
+    _updateTabBarUI: function() {
+      var tabs = document.querySelectorAll('#study-mode-tabs .study-mode-tab');
+      for (var i = 0; i < tabs.length; i++) {
+        var tabVal = tabs[i].getAttribute('data-tab');
+        if (tabVal === this._currentTab) {
+          tabs[i].classList.add('active');
+        } else {
+          tabs[i].classList.remove('active');
+        }
+      }
     },
 
     // ── Progress persistence ──

@@ -8,7 +8,6 @@
   var MediCard = window.MediCard || {};
 
   var FL = MediCard.FastLearnCore;
-  var Study = MediCard.ScreenStudy || {};
 
   MediCard.ScreenFastLearn = {
     _view: 'dashboard',     // 'dashboard' | 'subjectSelect' | 'session' | 'report' | 'memory' | 'plan'
@@ -24,6 +23,13 @@
     _currentShuffled: null,
     _currentQuestion: null,
     _feynmanCount: 0,
+    _container: 'screen-fastlearn',
+    _embedded: false,
+
+    /** Get the current rendering target element */
+    _getContainer: function() {
+      return document.getElementById(this._container);
+    },
 
     /* ========================================================================
      * ENTRY: Render current view
@@ -46,9 +52,11 @@
     },
 
     _ensureScreen: function() {
-      var screen = document.getElementById('screen-fastlearn');
+      var screen = this._getContainer();
       if (!screen) return;
-      screen.className = 'screen active study-theme-' + (this._theme || 'forest');
+      if (!this._embedded) {
+        screen.className = 'screen active study-theme-' + (this._theme || 'forest');
+      }
     },
 
     _loadTheme: function() {
@@ -64,7 +72,7 @@
 
     _renderDashboard: function() {
       this._view = 'dashboard';
-      var screen = document.getElementById('screen-fastlearn');
+      var screen = this._getContainer();
       if (!screen) return;
 
       var allSubjects = MediCard.Config ? MediCard.Config.subjectCategories[0].subjects : [];
@@ -195,7 +203,7 @@
 
     _renderSubjectSelect: function() {
       this._view = 'subjectSelect';
-      var screen = document.getElementById('screen-fastlearn');
+      var screen = this._getContainer();
       if (!screen) return;
 
       var subjects = MediCard.Config ? MediCard.Config.subjectCategories[0].subjects : [];
@@ -338,7 +346,7 @@
 
       if (toLoad.length > 0) {
         // Show loading
-        var screen = document.getElementById('screen-fastlearn');
+        var screen = this._getContainer();
         if (screen) screen.innerHTML = '<div class="fl-loading">⏳ 正在加载题目数据...</div>';
         var loaded = 0;
         for (var l = 0; l < toLoad.length; l++) {
@@ -402,7 +410,7 @@
       // Check vulnerability fix
       var needsVulnFix = kp ? FL.needsVulnerabilityFix(kp, item.subjectId) : false;
 
-      var screen = document.getElementById('screen-fastlearn');
+      var screen = this._getContainer();
       if (!screen) return;
 
       var html = '';
@@ -717,7 +725,7 @@
 
     _renderReport: function() {
       this._view = 'report';
-      var screen = document.getElementById('screen-fastlearn');
+      var screen = this._getContainer();
       if (!screen) return;
 
       var report = FL.generateSessionReport();
@@ -812,7 +820,7 @@
 
     _renderMemoryBrowser: function() {
       this._view = 'memory';
-      var screen = document.getElementById('screen-fastlearn');
+      var screen = this._getContainer();
       if (!screen) return;
 
       var mem = FL._memory || {};
@@ -905,7 +913,7 @@
 
     _renderWeeklyPlan: function() {
       this._view = 'plan';
-      var screen = document.getElementById('screen-fastlearn');
+      var screen = this._getContainer();
       if (!screen) return;
 
       var allSubjects = MediCard.Config ? MediCard.Config.subjectCategories[0].subjects : [];
@@ -959,7 +967,7 @@
      * ======================================================================== */
 
     _showError: function(msg) {
-      var screen = document.getElementById('screen-fastlearn');
+      var screen = this._getContainer();
       if (screen) {
         screen.innerHTML = '<div class="fl-loading" style="color:#ef4444;">⚠️ ' + _esc(msg) + '</div>';
       }
