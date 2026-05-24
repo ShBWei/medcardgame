@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "include": ["/*"],
+  "exclude": [
+    "/src/modules/question-bank/subjects/*.js",
+    "/bundle.js",
+    "/_headers",
+    "/_redirects"
+  ]
+}

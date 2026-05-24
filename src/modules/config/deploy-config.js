@@ -1,12 +1,13 @@
 /**
- * MediCard 医杀 — Deploy Configuration (V5.3)
+ * MediCard 医杀 — Deploy Configuration (V6.5)
  * Full 120-card deck: 72 basic + 30 tactic + 12 equipment + 6 delayed
+ * Cloudflare Pages / GitHub Pages / self-hosted server compatible
  */
 (function() {
-  const MediCard = window.MediCard || {};
+  var MediCard = window.MediCard || {};
 
   MediCard.Config = {
-    version: '5.6.0',
+    version: '6.5.0',
     appName: 'MediCard 医杀',
 
     get mode() {
@@ -16,20 +17,54 @@
       return 'local';
     },
 
+    /**
+     * true when deployed to static hosting (no backend server).
+     * Single-player, study, and FastLearn modes work normally.
+     * Multiplayer requires a separate signaling server — set signalingServer below.
+     */
+    get isStaticHosting() {
+      var m = this.mode;
+      return m === 'cloudflare-pages' || m === 'github-pages';
+    },
+
+    /**
+     * Signaling server override for static hosting (Cloudflare Pages / GitHub Pages).
+     * Set to 'wss://your-server.com' to enable multiplayer on static deployments.
+     * When null (default), uses same-origin signaling (works for local/server modes).
+     *
+     * Example: MediCard.Config.signalingServer = 'wss://relay.mygame.com';
+     */
+    signalingServer: null,
+
     peerjs: {
-      host: window.location.hostname || 'localhost',
-      port: (function() {
+      get host() {
+        var cfg = MediCard.Config;
+        // Use signaling server override if configured (for static hosting)
+        if (cfg.signalingServer) {
+          var m = cfg.signalingServer.match(/^wss?:\/\/([^/:]+)(?::(\d+))?/);
+          if (m) return m[1];
+        }
+        return window.location.hostname || 'localhost';
+      },
+      get port() {
+        var cfg = MediCard.Config;
+        if (cfg.signalingServer) {
+          var m = cfg.signalingServer.match(/:(\d+)/);
+          if (m) return parseInt(m[1], 10);
+          return window.location.protocol === 'https:' ? 443 : 80;
+        }
         var hn = window.location.hostname;
         var port = Number(window.location.port);
-        // Local dev: HTTP on 8080, PeerJS proxied via same port
         if (hn === 'localhost' || hn === '127.0.0.1') return port || 8080;
-        // Remote: PeerJS proxied through HTTP port (internal WebSocket proxy)
         return port || (window.location.protocol === 'https:' ? 443 : 80);
-      })(),
+      },
       path: '/medicard',
       key: 'medicard',
-      // Auto-detect secure: WSS for HTTPS pages, WS for HTTP (mixed-content prevention)
-      secure: window.location.protocol === 'https:',
+      get secure() {
+        var cfg = MediCard.Config;
+        if (cfg.signalingServer) return cfg.signalingServer.startsWith('wss:');
+        return window.location.protocol === 'https:';
+      },
       debug: 1,
       // ICE servers for NAT traversal (STUN + multiple TURN for symmetric NAT fallback)
       config: {

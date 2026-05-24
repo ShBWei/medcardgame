@@ -25,6 +25,8 @@
     _feynmanCount: 0,
     _container: 'screen-fastlearn',
     _embedded: false,
+    _crammingActive: false,
+    _crammingExamDate: 0,
 
     /** Get the current rendering target element */
     _getContainer: function() {
@@ -40,6 +42,8 @@
       FL.load();
       this._ensureScreen();
       this._loadTheme();
+      // [V6.5] Restore cramming state
+      this._restoreCrammingState();
       switch (this._view) {
         case 'dashboard': this._renderDashboard(); break;
         case 'subjectSelect': this._renderSubjectSelect(); break;
@@ -64,6 +68,38 @@
         var t = localStorage.getItem('medicard_study_theme');
         this._theme = t || 'forest';
       } catch(e) { this._theme = 'forest'; }
+    },
+
+    /** [V6.5] Restore cramming mode state from localStorage */
+    _restoreCrammingState: function() {
+      try {
+        var raw = localStorage.getItem('medicard_fl_cramming');
+        if (raw) {
+          var state = JSON.parse(raw);
+          if (state.active && state.examDate && state.examDate > Date.now()) {
+            this._crammingActive = true;
+            this._crammingExamDate = state.examDate;
+            // Re-enter dual-track mode
+            var DT = MediCard.DualTrack;
+            if (DT && DT.enterCrammingMode) {
+              var allSubjects = MediCard.Config ? MediCard.Config.subjectCategories[0].subjects : [];
+              DT.enterCrammingMode({
+                examDate: state.examDate,
+                targetSubjects: allSubjects,
+                dailyQuota: this._limit || 50
+              });
+            }
+          } else {
+            // Exam passed or invalid — clean up
+            localStorage.removeItem('medicard_fl_cramming');
+            this._crammingActive = false;
+            this._crammingExamDate = 0;
+          }
+        }
+      } catch(e) {
+        this._crammingActive = false;
+        this._crammingExamDate = 0;
+      }
     },
 
     /* ========================================================================
@@ -119,9 +155,33 @@
         '</div>' +
       '</div>';
 
+      // [V6.5] Cramming mode toggle section
+      var cramActive = self._crammingActive;
+      var hoursUntil = 0;
+      if (cramActive && self._crammingExamDate) {
+        hoursUntil = Math.max(0, Math.round((self._crammingExamDate - Date.now()) / (60 * 60 * 1000)));
+      }
+      html += '<div class="fl-cram-section">' +
+        '<div class="fl-cram-header">' +
+          '<span class="fl-cram-icon">' + (cramActive ? '⚡' : '📅') + '</span>' +
+          '<span class="fl-cram-label">考前冲刺模式</span>' +
+          (cramActive ? '<span class="fl-cram-countdown">距考试 <strong>' + hoursUntil + '</strong> 小时</span>' : '') +
+        '</div>';
+      if (cramActive) {
+        html += '<div style="display:flex;gap:8px;">' +
+          '<button class="fl-btn-dashboard" id="fl-cram-exit" style="flex:1;padding:8px;font-size:12px;color:#ef4444;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);border-radius:8px;cursor:pointer;">退出冲刺模式</button>' +
+          '</div>';
+        if (hoursUntil < 24) {
+          html += '<div class="fl-cram-freeze-notice">⚠️ 考前一晚，只复习已学内容，新题已冻结</div>';
+        }
+      } else {
+        html += '<button class="fl-btn-dashboard" id="fl-cram-enter" style="width:100%;padding:10px;font-size:14px;color:#f97316;background:rgba(249,115,22,0.1);border:1px solid rgba(249,115,22,0.3);border-radius:8px;cursor:pointer;">⚡ 进入考前冲刺</button>';
+      }
+      html += '</div>';
+
       // Start session button
       html += '<button class="fl-btn-start" id="fl-start-session">' +
-        (dueCount > 0 ? '⚡ 开始学习（' + dueCount + '题待复习）' : '🚀 开始新学习会话') +
+        (cramActive ? '⚡ 开始冲刺学习（' + dueCount + '题待复习）' : (dueCount > 0 ? '⚡ 开始学习（' + dueCount + '题待复习）' : '🚀 开始新学习会话')) +
       '</button>';
 
       // Quick actions row
@@ -195,6 +255,12 @@
         self._view = 'plan';
         self.render();
       });
+
+      // [V6.5] Cramming mode toggle events
+      var cramEnter = document.getElementById('fl-cram-enter');
+      var cramExit = document.getElementById('fl-cram-exit');
+      if (cramEnter) cramEnter.addEventListener('click', function() { self._showCrammingSetup(); });
+      if (cramExit) cramExit.addEventListener('click', function() { self._exitCrammingMode(); });
     },
 
     /* ========================================================================
@@ -327,7 +393,12 @@
           }
         } catch(e) {}
 
-        self._sessionQueue = FL.initSession(self._selectedSubjects, self._limit, wrongIds);
+        // [V6.5] Route to cramming session if active
+        if (self._crammingActive && MediCard.FastLearnCramming && MediCard.FastLearnCramming.initSession) {
+          self._sessionQueue = MediCard.FastLearnCramming.initSession(self._selectedSubjects, self._limit, wrongIds);
+        } else {
+          self._sessionQueue = FL.initSession(self._selectedSubjects, self._limit, wrongIds);
+        }
         self._sessionIndex = 0;
         self._sessionCorrect = 0;
         self._sessionAnswered = 0;
@@ -400,6 +471,10 @@
         }
       }
 
+      // Store original index before shuffling for distractor analysis lookup
+      for (var pi = 0; pi < parsedOptions.length; pi++) {
+        parsedOptions[pi]._origIndex = pi;
+      }
       // Shuffle options
       for (var i = parsedOptions.length - 1; i > 0; i--) {
         var ri = Math.floor(Math.random() * (i + 1));
@@ -408,7 +483,7 @@
 
       this._currentShuffled = [];
       for (var s = 0; s < parsedOptions.length; s++) {
-        this._currentShuffled.push({ letter: labels.charAt(s), text: parsedOptions[s].text, isCorrect: parsedOptions[s].isCorrect });
+        this._currentShuffled.push({ letter: labels.charAt(s), text: parsedOptions[s].text, isCorrect: parsedOptions[s].isCorrect, _origIndex: parsedOptions[s]._origIndex });
       }
 
       var qid = item.qid || q.id || '';
@@ -440,9 +515,15 @@
       html += '<div class="study-question-progress-bar" style="margin:0 16px 10px;">' +
         '<div class="study-question-progress-fill" style="width:' + pct + '%;"></div></div>';
 
+      // [V6.5] Cramming countdown badge
+      if (self._crammingActive && self._crammingExamDate) {
+        var cramHours = Math.max(0, Math.round((self._crammingExamDate - Date.now()) / (60 * 60 * 1000)));
+        html += '<div class="fl-cram-badge">⏰ 距考试 ' + cramHours + 'h</div>';
+      }
+
       // Info bar — memory stats
       html += '<div class="fl-info-bar">' +
-        '<div class="fl-info-item"><span class="fl-info-icon">🧠</span><span class="fl-memory-badge l' + memLevel + '">Lv.' + memLevel + '</span></div>' +
+        '<div class="fl-info-item"><span class="fl-info-icon">🧠</span><span class="fl-memory-badge ' + (self._crammingActive ? 'cram' : 'l' + memLevel) + '">Lv.' + memLevel + '</span></div>' +
         '<div class="fl-info-item"><span class="fl-info-icon">🔄</span>复习 <span class="fl-info-value">' + memCount + '</span> 次</div>' +
         (entry && entry.errorCount > 0 ? '<div class="fl-info-item"><span class="fl-info-icon">❌</span>错误 <span class="fl-info-value">' + entry.errorCount + '</span> 次</div>' : '') +
         (entry && entry.nextReview > 0 ? '<div class="fl-info-item"><span class="fl-info-icon">⏰</span>下次 ' + _formatTime(entry.nextReview) + '</div>' : '') +
@@ -575,6 +656,9 @@
       // Record timing
       var elapsed = this._questionStartTime > 0 ? Date.now() - this._questionStartTime : 0;
 
+      // Extract knowledge point for feedback
+      var kp = q.knowledgePoint || q.kp || '';
+
       // Update FastLearn memory and get analysis
       var errorGene = null;
       if (!isCorrect) {
@@ -584,8 +668,18 @@
         errorGene = analysis.genes[0] || 'other';
       }
 
-      // Record in FastLearn core
-      var result = FL.recordSessionAnswer(qid, isCorrect, elapsed, q, errorGene);
+      // [V6.5] Record answer — route through cramming if active
+      var result;
+      if (self._crammingActive && MediCard.FastLearnCramming && MediCard.FastLearnCramming.recordSessionAnswer) {
+        result = MediCard.FastLearnCramming.recordSessionAnswer(qid, isCorrect, elapsed, q, errorGene);
+      } else {
+        result = FL.recordSessionAnswer(qid, isCorrect, elapsed, q, errorGene);
+      }
+
+      // [V6.5] Show vuln fix toast when triggered
+      if (result.needsVulnerabilityFix && kp) {
+        self._showVulnFixToast(kp);
+      }
 
       // Highlight options
       var optBtns = document.querySelectorAll('#fl-options .study-option-btn');
@@ -606,12 +700,36 @@
         var fbHtml = '<div class="study-feedback ' + (isCorrect ? 'correct-fb' : 'wrong-fb') + '">';
         fbHtml += isCorrect ? '✅ 回答正确！' : '❌ 回答错误';
         if (errorGene) {
-          var geneNames = { concept_confusion: '概念混淆', knowledge_gap: '知识空白', memory_blur: '记忆模糊', over_selection: '过度选择', logic_error: '逻辑错误', other: '其他' };
+          var geneNames = {
+            concept_confusion: '概念混淆', knowledge_gap: '知识空白', memory_blur: '记忆模糊',
+            over_selection: '过度选择', logic_error: '逻辑错误',
+            differential_confusion: '鉴别混淆', dose_numeric_error: '数值错误', indication_contra: '适应症错误',
+            other: '其他'
+          };
           fbHtml += ' <span class="fl-error-gene-tag">' + (geneNames[errorGene] || errorGene) + '</span>';
         }
         fbHtml += '</div>';
 
-        // Answer comparison for wrong answers
+        // [V6.5] Medical-specific error gene hints (wrong answers only)
+        if (!isCorrect && errorGene) {
+          var geneHints = {
+            differential_confusion: '易混淆疾病，建议对比鉴别诊断要点',
+            dose_numeric_error: '数值类考点，建议建立数量级锚定记忆',
+            indication_contra: '注意适应症/禁忌症的场景匹配',
+            concept_confusion: '相似概念混淆，建议理清定义边界',
+            knowledge_gap: '基础知识空白，建议回到教材查漏补缺',
+            memory_blur: '记忆模糊，建议增加该知识点复习频率',
+            over_selection: '选入了干扰项，注意审题和排除法',
+            logic_error: '逻辑推理有误，建议梳理解题思路'
+          };
+          if (geneHints[errorGene]) {
+            fbHtml += '<div class="fl-gene-hint">' +
+              '<span class="fl-gene-hint-icon">💡</span>' + _esc(geneHints[errorGene]) +
+              '</div>';
+          }
+        }
+
+        // Answer comparison (always show for wrong, optional for correct)
         if (!isCorrect) {
           fbHtml += '<div class="study-answer-compare">' +
             '<div class="study-answer-badge your-answer">' +
@@ -625,11 +743,63 @@
             '</div>';
         }
 
-        // Explanation
+        // Explanation — always show if available
         var exp = q.explanation || q.exp || '';
         if (exp) {
           fbHtml += '<div class="study-explanation">' +
             '<span class="study-exp-label">💡 解析</span>' + _esc(exp) + '</div>';
+        }
+
+        // Option-level breakdown for wrong answers — show why each option is right/wrong
+        if (!isCorrect) {
+          fbHtml += '<div class="study-option-breakdown">';
+          for (var oi = 0; oi < self._currentShuffled.length; oi++) {
+            var opt = self._currentShuffled[oi];
+            var isOptCorrect = opt.isCorrect;
+            var wasSelected = selectedLetters.indexOf(opt.letter) >= 0;
+            var optClass = '';
+            if (isOptCorrect && wasSelected) optClass = 'opt-correct-chosen';
+            else if (isOptCorrect && !wasSelected) optClass = 'opt-correct-missed';
+            else if (!isOptCorrect && wasSelected) optClass = 'opt-wrong-chosen';
+            else optClass = 'opt-distractor';
+
+            var optIdx = self._currentShuffled[oi]._origIndex; // original option index in question data
+            var origOpt = (q.options || q.opts || [])[optIdx !== undefined ? optIdx : oi];
+            var distAna = (origOpt && typeof origOpt === 'object') ? origOpt.distractorAnalysis : null;
+
+            fbHtml += '<div class="study-opt-row ' + optClass + '">' +
+              '<span class="study-opt-letter-sm">' + opt.letter + '</span>' +
+              '<span class="study-opt-text-sm">' + _esc(opt.text) + '</span>' +
+              '<span class="study-opt-tag">' +
+                (isOptCorrect ? '✓ 正确' : '✗ 错误') +
+                (wasSelected ? ' · 已选' : '') +
+              '</span>' +
+              '</div>';
+
+            // [V6.5] Distractor analysis — show trap explanation for wrong chosen options
+            if (!isOptCorrect && wasSelected && distAna) {
+              fbHtml += '<div class="distractor-analysis" id="dist-ana-' + oi + '">' +
+                '<button class="distractor-toggle" data-target="dist-ana-' + oi + '">' +
+                  '查看陷阱分析 <span class="distractor-arrow">▼</span>' +
+                '</button>' +
+                '<div class="distractor-body" style="display:none;">' +
+                  (distAna.whyWrong ? '<div class="distractor-why"><strong>为什么错：</strong>' + _esc(distAna.whyWrong) + '</div>' : '') +
+                  (distAna.commonMistake ? '<div class="distractor-mistake"><strong>常见误区：</strong>' + _esc(distAna.commonMistake) + '</div>' : '') +
+                  (distAna.trapType ? '<div class="distractor-trap-type">陷阱类型：' + _esc(distAna.trapType) + '</div>' : '') +
+                '</div>' +
+              '</div>';
+            }
+          }
+          fbHtml += '</div>';
+        }
+
+        // Knowledge point reference
+        if (kp) {
+          fbHtml += '<div style="margin-top:8px;font-size:12px;color:var(--s-text3);">' +
+            '📖 知识点：<strong>' + _esc(kp) + '</strong>' +
+            (q.difficulty ? ' · 难度：' + _esc(q.difficulty) : '') +
+            (q.chapter ? ' · ' + _esc(q.chapter) : '') +
+            '</div>';
         }
 
         // Feynman check prompt (every 5 questions, on correct answers)
@@ -654,6 +824,24 @@
         '</div>';
 
         fbArea.innerHTML = fbHtml;
+
+        // [V6.5] Attach distractor analysis toggle events
+        var distToggles = document.querySelectorAll('.distractor-toggle');
+        for (var dt = 0; dt < distToggles.length; dt++) {
+          distToggles[dt].addEventListener('click', function() {
+            var targetId = this.getAttribute('data-target');
+            var body = document.getElementById(targetId);
+            if (body) {
+              var bodyEl = body.querySelector('.distractor-body');
+              var arrow = body.querySelector('.distractor-arrow');
+              if (bodyEl) {
+                var isHidden = bodyEl.style.display === 'none';
+                bodyEl.style.display = isHidden ? 'block' : 'none';
+                if (arrow) arrow.textContent = isHidden ? '▲' : '▼';
+              }
+            }
+          });
+        }
 
         // Feynman button
         var feynBtn = document.getElementById('fl-feynman-btn');
@@ -741,7 +929,12 @@
       var screen = this._getContainer();
       if (!screen) return;
 
-      var report = FL.generateSessionReport();
+      // [V6.5] Use cramming report if active
+      var report;
+      if (this._crammingActive && MediCard.FastLearnCramming && MediCard.FastLearnCramming.generateSessionReport) {
+        report = MediCard.FastLearnCramming.generateSessionReport();
+      }
+      if (!report) report = FL.generateSessionReport();
       if (!report) {
         this._view = 'dashboard';
         this.render();
@@ -984,6 +1177,89 @@
       if (screen) {
         screen.innerHTML = '<div class="fl-loading" style="color:#ef4444;">⚠️ ' + _esc(msg) + '</div>';
       }
+    },
+
+    /**
+     * [V6.5] Show a lightweight vuln fix toast — non-blocking, 2s auto-dismiss.
+     */
+    _showVulnFixToast: function(kp) {
+      var toast = document.createElement('div');
+      toast.className = 'fl-vuln-toast';
+      toast.innerHTML = '<span class="fl-vuln-toast-icon">🔧</span> 进入补漏模式：<strong>' + _esc(kp) + '</strong>';
+      document.body.appendChild(toast);
+      // Trigger animation
+      requestAnimationFrame(function() { toast.classList.add('fl-vuln-toast-visible'); });
+      setTimeout(function() {
+        toast.classList.remove('fl-vuln-toast-visible');
+        setTimeout(function() { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 300);
+      }, 2000);
+    },
+
+    /**
+     * [V6.5] Show exam time input dialog for cramming mode.
+     */
+    _showCrammingSetup: function() {
+      var self = this;
+      var overlay = document.createElement('div');
+      overlay.className = 'fl-feynman-overlay';
+      overlay.innerHTML = '<div class="fl-feynman-card">' +
+        '<h4>⚡ 考前冲刺模式</h4>' +
+        '<p>请输入考试时间，系统将自动切换到压缩间隔调度</p>' +
+        '<div style="margin-bottom:12px;">' +
+          '<label style="display:block;font-size:13px;color:var(--s-text2);margin-bottom:4px;">考试时间</label>' +
+          '<input type="datetime-local" id="fl-exam-datetime" style="width:100%;padding:10px;font-size:14px;' +
+            'background:var(--s-surface);color:var(--s-text);border:1px solid var(--s-border);border-radius:8px;box-sizing:border-box;">' +
+        '</div>' +
+        '<div class="fl-feynman-actions">' +
+          '<button class="fl-feynman-skip" id="fl-cram-cancel">取消</button>' +
+          '<button class="fl-feynman-done" id="fl-cram-confirm">开启冲刺</button>' +
+        '</div>' +
+      '</div>';
+      document.body.appendChild(overlay);
+      var close = function() { overlay.remove(); };
+      overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
+      var cancelBtn = document.getElementById('fl-cram-cancel');
+      var confirmBtn = document.getElementById('fl-cram-confirm');
+      if (cancelBtn) cancelBtn.addEventListener('click', close);
+      if (confirmBtn) {
+        confirmBtn.addEventListener('click', function() {
+          var dtInput = document.getElementById('fl-exam-datetime');
+          if (dtInput && dtInput.value) {
+            var examDate = new Date(dtInput.value).getTime();
+            if (examDate > Date.now()) {
+              self._crammingExamDate = examDate;
+              self._crammingActive = true;
+              // Enter dual-track cramming mode
+              var DT = MediCard.DualTrack;
+              if (DT && DT.enterCrammingMode) {
+                var allSubjects = MediCard.Config ? MediCard.Config.subjectCategories[0].subjects : [];
+                DT.enterCrammingMode({
+                  examDate: examDate,
+                  targetSubjects: allSubjects,
+                  dailyQuota: self._limit || 50
+                });
+              }
+              try { localStorage.setItem('medicard_fl_cramming', JSON.stringify({ examDate: examDate, active: true })); } catch(e) {}
+              self._view = 'dashboard';
+              self.render();
+            } else {
+              alert('考试时间必须在未来');
+            }
+          }
+          close();
+        });
+      }
+    },
+
+    /** [V6.5] Exit cramming mode */
+    _exitCrammingMode: function() {
+      this._crammingActive = false;
+      this._crammingExamDate = 0;
+      var DT = MediCard.DualTrack;
+      if (DT && DT.exitCrammingMode) DT.exitCrammingMode();
+      try { localStorage.removeItem('medicard_fl_cramming'); } catch(e) {}
+      this._view = 'dashboard';
+      this.render();
     }
   };
 

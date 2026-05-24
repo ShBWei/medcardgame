@@ -10,7 +10,7 @@ const ROOT = path.join(__dirname, '..');
 const SRC = path.join(ROOT, 'src');
 const DIST = path.join(ROOT, 'dist');
 
-const VERSION = '5.9.0';
+const VERSION = '6.5.0';
 
 // ── CSS files in dependency order (from index.html) ──
 const CSS_FILES = [
@@ -54,7 +54,13 @@ const JS_FILES = [
   'question-bank/question-loader.js',
   'question-bank/wrong-question-book.js',
   // FastLearn (must load before UI screens)
+  'fastlearn/fastlearn-storage.js',
   'fastlearn/fastlearn-core.js',
+  'fastlearn/fastlearn-prereq.js',
+  'fastlearn/fastlearn-casegroup.js',
+  'fastlearn/dual-track-memory.js',
+  'fastlearn/interleaving-scheduler.js',
+  'fastlearn/fastlearn-cramming.js',
   // UI screens (early, referenced by others)
   'ui-system/screen-notebook.js',
   'ui-system/screen-study.js',
@@ -230,13 +236,13 @@ ${css}
   console.log('  → index.html: ' + htmlSize + ' KB');
 
   // 6. Copy Cloudflare configs
-  for (const f of ['_headers', '_redirects']) {
+  for (const f of ['_headers', '_redirects', '_routes.json']) {
     const src = path.join(ROOT, f);
     if (fs.existsSync(src)) {
       fs.copyFileSync(src, path.join(DIST, f));
     }
   }
-  console.log('  Config: _headers + _redirects copied');
+  console.log('  Config: _headers + _redirects + _routes.json copied');
 
   console.log('\n✅ Build complete → dist/');
   console.log('   Deploy: dist/ directory to Cloudflare Pages');

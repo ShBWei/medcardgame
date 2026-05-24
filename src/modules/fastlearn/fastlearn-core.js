@@ -16,6 +16,8 @@
     _sessionRetrainMap: null,
     _sessionSeenKP: null,
     _sessionPendingConfusing: null,
+    _vulnFixActive: false,
+    _vulnFixQueue: null,
 
     /* ========================================================================
      * SECTION 1: Memory Model — 6-Level Spaced Repetition
@@ -73,7 +75,8 @@
 
       if (correct) {
         entry.consecutiveCorrect++;
-        if (entry.level < 5) entry.level++;
+        // [V6.5] During vulnerability fix, don't modify daily memory levels
+        if (!this._vulnFixActive && entry.level < 5) entry.level++;
         // Adapt interval: fast responses → slightly longer intervals
         if (responseMs > 0) {
           if (responseMs < 5000) entry.adaptationFactor = Math.min(1.5, entry.adaptationFactor + 0.02);
@@ -82,7 +85,8 @@
       } else {
         entry.consecutiveCorrect = 0;
         entry.errorCount++;
-        entry.level = Math.max(1, entry.level - 1);
+        // [V6.5] During vulnerability fix, don't demote daily level
+        if (!this._vulnFixActive) entry.level = Math.max(1, entry.level - 1);
         if (errorGene && entry.errorGenes.indexOf(errorGene) < 0) {
           entry.errorGenes.push(errorGene);
         }
@@ -237,8 +241,20 @@
         score += 40;
       }
 
-      // Slight randomization to prevent deterministic ordering
-      score += Math.random() * 5;
+      // Randomization — prevents deterministic ordering across sessions
+      // Higher jitter for unlearned questions to ensure variety
+      if (!entry || entry.level === 0) {
+        score += Math.random() * 30;  // Wide jitter for new questions → rotation
+      } else {
+        score += Math.random() * 12;
+      }
+
+      // Demote questions seen in recent sessions (last 24 hours)
+      if (entry && entry.lastReviewed > 0) {
+        var hoursSinceReview = (now - entry.lastReviewed) / (60 * 60 * 1000);
+        if (hoursSinceReview < 2) score -= 25;       // Just reviewed → strongly demote
+        else if (hoursSinceReview < 6) score -= 12;   // Reviewed recently → demote
+      }
 
       return score;
     },
@@ -312,6 +328,53 @@
         genes.push('logic_error');
       }
 
+      // Gene 5 (V6.5): differential_confusion — same system, different disease
+      if (questionData && userStr && correctStr && userStr !== correctStr) {
+        var qTags = questionData.tags || [];
+        // Heuristic: if question has clinical system tags, and answer is from same subject
+        if (qTags.length > 0 && questionData.subjectId) {
+          genes.push('differential_confusion');
+        }
+      }
+
+      // Gene 6 (V6.5): dose_numeric_error — numeric value in options, wrong order of magnitude
+      if (questionData && userStr && correctStr && userStr !== correctStr) {
+        var userNum = _extractNumbers(userStr);
+        var correctNum = _extractNumbers(correctStr);
+        // Also check option texts for numeric content
+        var options = questionData.options || questionData.opts || [];
+        var hasNumericOption = false;
+        for (var oi = 0; oi < options.length; oi++) {
+          var optText = typeof options[oi] === 'string' ? options[oi] : (options[oi].text || '');
+          if (/\d/.test(optText)) { hasNumericOption = true; break; }
+        }
+        if (hasNumericOption && userNum.length > 0 && correctNum.length > 0) {
+          var userMag = _magnitude(userNum);
+          var correctMag = _magnitude(correctNum);
+          if (userMag !== correctMag) {
+            genes.push('dose_numeric_error');
+          }
+        }
+      }
+
+      // Gene 7 (V6.5): indication_contra — drug/operation in a mismatched scenario
+      if (questionData && userStr && correctStr && userStr !== correctStr) {
+        var drugPattern = /青霉素|头孢|阿莫西林|阿奇霉素|万古霉素|利福平|异烟肼|吡嗪酰胺|链霉素|庆大霉素|多西环素|四环素|氯霉素|红霉素|诺氟沙星|氧氟沙星|环丙沙星|甲硝唑|氟康唑|两性霉素|伊曲康唑|阿昔洛韦|利巴韦林|干扰素|泼尼松|地塞米松|胰岛素|二甲双胍|硝苯地平|卡托普利|呋塞米|氢氯噻嗪|阿司匹林|华法林|肝素|尿激酶|链激酶/g;
+        var surgeryPattern = /切除|切开|引流|移植|吻合|造口|穿刺|镜检|造影|介入/g;
+        var optionsText = '';
+        if (questionData.options) {
+          for (var oj = 0; oj < questionData.options.length; oj++) {
+            optionsText += (typeof questionData.options[oj] === 'string' ? questionData.options[oj] : (questionData.options[oj].text || '')) + ' ';
+          }
+        }
+        var questionText = questionData.question || questionData.q || '';
+        var hasDrugOrSurgery = drugPattern.test(optionsText) || surgeryPattern.test(optionsText);
+        var isScenarioQ = questionText.length > 40; // Clinical scenario questions are longer
+        if (hasDrugOrSurgery && isScenarioQ) {
+          genes.push('indication_contra');
+        }
+      }
+
       if (genes.length === 0) genes.push('other');
 
       return {
@@ -322,6 +385,19 @@
         knowledgePoint: (questionData && (questionData.knowledgePoint || questionData.kp)) || '',
         timestamp: Date.now()
       };
+
+      // Helper: extract numeric values from a string
+      function _extractNumbers(str) {
+        var matches = str.match(/\d+(?:\.\d+)?/g);
+        return matches ? matches.map(Number) : [];
+      }
+      // Helper: rough order of magnitude
+      function _magnitude(nums) {
+        if (!nums || nums.length === 0) return 0;
+        var avg = nums.reduce(function(a, b) { return a + b; }, 0) / nums.length;
+        if (avg === 0) return 0;
+        return Math.floor(Math.log10(Math.abs(avg)));
+      }
     },
 
     /**
@@ -565,9 +641,39 @@
       return item;
     },
 
-    /** Advance to next question, handling retraining insertions */
+    /** Advance to next question, handling retraining insertions and vuln fix lifecycle */
     advanceQuestion: function() {
       this._sessionIndex++;
+
+      // [V6.5] Vuln fix lifecycle — check if we're past the basic fix questions
+      if (this._vulnFixActive && this._vulnFixQueue) {
+        var vfq = this._vulnFixQueue;
+        // Check if there are more vuln fix questions coming up
+        var hasMoreFix = false;
+        for (var i = this._sessionIndex; i < this._sessionQueue.length; i++) {
+          var q = this._sessionQueue[i];
+          if (q && q._vulnFix) { hasMoreFix = true; break; }
+        }
+        if (!hasMoreFix) {
+          // Insert advanced then confusing questions
+          if (vfq.advancedIdx < vfq.advanced.length) {
+            var adv = vfq.advanced[vfq.advancedIdx];
+            adv._vulnFix = true;
+            this._sessionQueue.splice(this._sessionIndex, 0, adv);
+            vfq.advancedIdx++;
+          } else if (vfq.confusingIdx < vfq.confusing.length) {
+            var conf = vfq.confusing[vfq.confusingIdx];
+            conf._vulnFix = true;
+            this._sessionQueue.splice(this._sessionIndex, 0, conf);
+            vfq.confusingIdx++;
+          } else {
+            // All fix questions done
+            this._vulnFixActive = false;
+            this._vulnFixQueue = null;
+          }
+        }
+      }
+
       // Check for pending confusing questions to insert
       if (this._sessionPendingConfusing.length > 0 && this._sessionIndex < this._sessionQueue.length) {
         var insert = this._sessionPendingConfusing.shift();
@@ -602,10 +708,26 @@
           this._sessionStats.retrainings++;
         }
 
-        // Check for vulnerability fix
+        // [V6.5] Auto-execute vulnerability fix — insert fix questions into queue
         if (kp && this.needsVulnerabilityFix(kp, sid)) {
           this._sessionStats.vulnerabilityFixes++;
-          // Will be triggered by UI layer
+          var fixPack = this.buildVulnerabilityFix(kp, sid);
+          if (fixPack && fixPack.basicQuestions && fixPack.basicQuestions.length > 0) {
+            this._vulnFixActive = true;
+            // Store remaining fix questions for after basic set
+            this._vulnFixQueue = {
+              advanced: fixPack.advancedQuestions || [],
+              confusing: fixPack.confusingQuestions || [],
+              advancedIdx: 0,
+              confusingIdx: 0
+            };
+            // Insert basic fix questions at currentIndex + 1
+            var insertAt = this._sessionIndex + 1;
+            var basics = fixPack.basicQuestions;
+            for (var bi = basics.length - 1; bi >= 0; bi--) {
+              this._sessionQueue.splice(insertAt, 0, basics[bi]);
+            }
+          }
         }
       }
 
@@ -742,6 +864,8 @@
       return 'medicard_fl_memory_' + uid;
     },
 
+    _loaded: false,
+
     save: function() {
       try {
         var data = {
@@ -749,6 +873,12 @@
           knowledgeErrors: this._knowledgeErrors,
           savedAt: Date.now()
         };
+        // Use StorageAdapter if available
+        var FLS = MediCard.FastLearnStorage;
+        if (FLS && FLS.save) {
+          FLS.save(data);
+          return;
+        }
         localStorage.setItem(this._getStorageKey(), JSON.stringify(data));
       } catch(e) {
         // Storage full — trim oldest entries
@@ -757,16 +887,70 @@
     },
 
     load: function() {
+      if (this._loaded) return;  // Already loaded — don't overwrite in-memory state
+      this._loaded = true;
+      this._installUnloadSaver();
+
+      var self = this;
+      var mergeData = function(data) {
+        if (!data) return;
+        // Merge rather than replace, preserving any entries already in memory
+        if (data.memory) {
+          for (var qid in data.memory) {
+            if (!self._memory[qid] ||
+                (data.memory[qid].lastReviewed || 0) > (self._memory[qid].lastReviewed || 0)) {
+              self._memory[qid] = data.memory[qid];
+            }
+          }
+        }
+        if (data.knowledgeErrors) {
+          for (var k in data.knowledgeErrors) {
+            var cke = data.knowledgeErrors[k];
+            var lke = self._knowledgeErrors[k];
+            if (!lke || cke.total > lke.total) {
+              self._knowledgeErrors[k] = cke;
+            }
+          }
+        }
+      };
+
+      // Use StorageAdapter if available
+      var FLS = MediCard.FastLearnStorage;
+      if (FLS && FLS.loadAsync) {
+        FLS.loadAsync(function(data) {
+          if (data) mergeData(data);
+        });
+        return;
+      }
+
+      // Fallback: direct localStorage
       try {
         var raw = localStorage.getItem(this._getStorageKey());
         if (raw) {
           var data = JSON.parse(raw);
-          this._memory = data.memory || {};
-          this._knowledgeErrors = data.knowledgeErrors || {};
+          mergeData(data);
         }
       } catch(e) {
-        this._memory = {};
-        this._knowledgeErrors = {};
+        console.warn('[FastLearn] Load failed, keeping current memory state:', e.message);
+      }
+    },
+
+    /** Force save before page unload — prevents loss of recent answers */
+    _installUnloadSaver: function() {
+      var self = this;
+      if (this._unloadInstalled) return;
+      this._unloadInstalled = true;
+      var saveAndClear = function() {
+        if (self._saveTimer) { clearTimeout(self._saveTimer); self._saveTimer = null; }
+        self.save();
+      };
+      if (typeof window !== 'undefined') {
+        window.addEventListener('beforeunload', saveAndClear);
+        window.addEventListener('pagehide', saveAndClear);
+        // Also save on visibility change (mobile tab switch)
+        window.addEventListener('visibilitychange', function() {
+          if (document.visibilityState === 'hidden') saveAndClear();
+        });
       }
     },
 
@@ -834,6 +1018,11 @@
      * ======================================================================== */
 
     exportData: function() {
+      // Use file export if StorageAdapter available
+      var FLS = MediCard.FastLearnStorage;
+      if (FLS && FLS.exportToFile) {
+        return FLS.exportToFile();
+      }
       return {
         memory: this._memory,
         knowledgeErrors: this._knowledgeErrors,
@@ -842,10 +1031,25 @@
       };
     },
 
-    importData: function(data) {
+    importData: function(data, isFile) {
+      // If isFile is a File object, delegate to StorageAdapter
+      if (isFile && typeof isFile === 'object' && isFile.name) {
+        var FLS = MediCard.FastLearnStorage;
+        if (FLS && FLS.importFromFile) {
+          var self = this;
+          FLS.importFromFile(isFile, function(success, count) {
+            if (success) {
+              console.log('[FastLearn] Imported ' + count + ' entries from file');
+            }
+          });
+          return true;
+        }
+        return false;
+      }
+
+      // Legacy JSON data import
       if (!data || !data.memory) return false;
       try {
-        // Merge imported data (newer timestamps take precedence)
         for (var qid in data.memory) {
           var ie = data.memory[qid];
           var le = this._memory[qid];

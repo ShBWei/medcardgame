@@ -1,40 +1,36 @@
-# Cloudflare Pages — HTTP Headers for optimal caching
-# ==================================================
+# Cloudflare Pages — HTTP Headers for optimal caching & security
+# ==============================================================
 
-# HTML: no cache (always get latest)
+# ── HTML: no cache (always get latest version) ──
 /index.html
   Cache-Control: no-cache, must-revalidate
+  X-Robots-Tag: index, follow
 
-# Production bundle: cache 1 week (versioned)
+# ── Production bundle: cache 1 week (versioned via ?v= query string) ──
 /bundle.js
-  Cache-Control: public, max-age=604800
+  Cache-Control: public, max-age=604800, immutable
 
-# JavaScript modules: cache 1 week (versioned via ?v= query strings)
-/src/modules/**/*.js
-  Cache-Control: public, max-age=604800
-
-# CSS files: cache 1 week
-/src/css/**/*.css
-  Cache-Control: public, max-age=604800
-
-# Question bank data files: cache 1 month (rarely change)
-/src/modules/question-bank/subjects/*.js
+# ── Subject data files: cache 1 month (rarely change, loaded dynamically) ──
+/src/modules/question-bank/subjects/*
   Cache-Control: public, max-age=2592000
 
-# External libraries: cache 1 month
-/src/lib/*.js
+# ── External libraries: cache 1 month ──
+/src/lib/*
   Cache-Control: public, max-age=2592000
 
-# Service Worker: no cache
-/sw.js
-  Cache-Control: no-cache, must-revalidate
-
-# Redirects file: no cache
+# ── SPA routing redirects: no cache ──
 /_redirects
   Cache-Control: no-cache
 
-# Security headers for all pages
+# ── Service Worker: no cache (if added later) ──
+/sw.js
+  Cache-Control: no-cache, must-revalidate
+
+# ── Global security headers ──
 /*
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
+  X-XSS-Protection: 1; mode=block
   Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()
+  Strict-Transport-Security: max-age=31536000; includeSubDomains; preload

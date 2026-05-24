@@ -1188,6 +1188,45 @@
       document.getElementById('study-main-area').innerHTML = html;
       this._updateHeaderForSummary();
       this._attachSummaryEvents();
+      this._pushStudyScoreToLeaderboard(correct, total, pct);
+    },
+
+    /**
+     * Submit cumulative study score to the leaderboard.
+     * One correct answer = one point. Uses the battle leaderboard.
+     */
+    _pushStudyScoreToLeaderboard: function(sessionCorrect, sessionTotal, sessionPct) {
+      try {
+        var MC = window.MedicalKillCommunity;
+        if (!MC || !MC.updateLeaderboard) return;
+
+        // Compute cumulative study stats across all subjects in _progress
+        var cumulativeCorrect = 0;
+        var cumulativeAnswered = 0;
+        for (var subj in this._progress) {
+          var p = this._progress[subj];
+          cumulativeCorrect += p.correct || 0;
+          cumulativeAnswered += p.answered || 0;
+        }
+
+        var user = MediCard.Storage && MediCard.Storage.getCurrentUser ? MediCard.Storage.getCurrentUser() : null;
+        var entry = {
+          userId: MediCard.Storage ? MediCard.Storage.getCurrentUserId() : '',
+          name: user ? user.username : '',
+          score: cumulativeCorrect,               // +1 per correct answer
+          wins: cumulativeAnswered,                // total answered (for sorting tiebreak)
+          totalGames: sessionTotal,                // this session's total
+          winRate: cumulativeAnswered > 0 ? Math.round(cumulativeCorrect / cumulativeAnswered * 100) : 0
+        };
+
+        // Update local cache
+        MC.updateLeaderboard('battle', entry);
+
+        // Push to server (with weekly flag)
+        if (MC.Leaderboard && MC.Leaderboard.pushToServer) {
+          MC.Leaderboard.pushToServer(entry, true);
+        }
+      } catch(e) { /* silent */ }
     },
 
     _attachSummaryEvents: function() {
