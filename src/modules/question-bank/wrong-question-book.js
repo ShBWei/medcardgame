@@ -349,19 +349,97 @@
       this.remove(type, questionId);
     },
 
-    /** Get full question data from ID (loads from QuestionLoader if available) */
+    /** Get full question data from ID. O(1) indexed lookup — fast path for loaded subjects. */
     getQuestionData: function(questionId) {
       if (!questionId) return null;
       var loader = MediCard.QuestionLoader;
       if (!loader) return null;
+
+      // O(1) reverse-index lookup (fast path)
+      var entry = loader._questionIndex && loader._questionIndex[questionId];
+      if (entry) {
+        var cached = loader._cache && loader._cache[entry.subjectId];
+        if (cached && entry.index < cached.length) {
+          var q = cached[entry.index];
+          if (q && (q.id === questionId || q.cardId === questionId)) return q;
+        }
+      }
+
+      // Fallback: deduce subject and scan (only for subjects not yet indexed)
       var subj = this._subjectFromId(questionId);
       var questions = loader.getSubject ? loader.getSubject(subj) : null;
       if (questions) {
         for (var i = 0; i < questions.length; i++) {
-          if (questions[i].id === questionId) return questions[i];
+          if (questions[i].id === questionId || questions[i].cardId === questionId) return questions[i];
         }
       }
       return null;
+    },
+
+    /**
+     * Batch-load question data for multiple IDs.
+     * Returns all found questions in a single pass, building a result map.
+     * Much faster than calling getQuestionData() in a loop (one scan per subject).
+     *
+     * @param {Array} questionIds
+     * @returns {object} { qid: questionData } map for all found questions
+     */
+    getQuestionDataBatch: function(questionIds) {
+      var result = {};
+      if (!questionIds || !questionIds.length) return result;
+      var loader = MediCard.QuestionLoader;
+      if (!loader) return result;
+
+      // Group IDs by subject
+      var bySubject = {};
+      for (var i = 0; i < questionIds.length; i++) {
+        var qid = questionIds[i];
+        // Try index first
+        var entry = loader._questionIndex && loader._questionIndex[qid];
+        if (entry) {
+          if (!bySubject[entry.subjectId]) bySubject[entry.subjectId] = [];
+          bySubject[entry.subjectId].push({ qid: qid, index: entry.index });
+        } else {
+          var subj = this._subjectFromId(qid);
+          if (!bySubject[subj]) bySubject[subj] = [];
+          bySubject[subj].push({ qid: qid, index: -1 });
+        }
+      }
+
+      // One scan per subject
+      for (var subj in bySubject) {
+        var questions = loader.getSubject ? loader.getSubject(subj) : null;
+        if (!questions) continue;
+
+        var indexedSet = {};
+        for (var j = 0; j < bySubject[subj].length; j++) {
+          var item = bySubject[subj][j];
+          if (item.index >= 0 && item.index < questions.length) {
+            var q = questions[item.index];
+            if (q && (q.id === item.qid || q.cardId === item.qid)) {
+              result[item.qid] = q;
+            } else {
+              indexedSet[item.qid] = true;
+            }
+          } else {
+            indexedSet[item.qid] = true; // needs linear scan
+          }
+        }
+
+        // Single linear scan for remaining unmatched IDs in this subject
+        if (Object.keys(indexedSet).length > 0) {
+          for (var k = 0; k < questions.length; k++) {
+            var qk = questions[k];
+            var matchId = qk.id || qk.cardId;
+            if (matchId && indexedSet[matchId]) {
+              result[matchId] = qk;
+              delete indexedSet[matchId];
+              if (Object.keys(indexedSet).length === 0) break;
+            }
+          }
+        }
+      }
+      return result;
     }
   };
 
