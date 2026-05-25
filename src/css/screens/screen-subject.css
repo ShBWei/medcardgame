@@ -238,6 +238,86 @@
   z-index: 5;
 }
 
+/* ── Chapter selection within each subject ── */
+.subject-chapter-area {
+  background: rgba(30, 41, 59, 0.25);
+  border: 1px solid rgba(100, 116, 139, 0.1);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-top: -4px;
+}
+
+.subject-chapter-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.subject-chapter-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.chapter-toggle-all {
+  font-size: 11px;
+  color: var(--accent-cyan);
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 10px;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.chapter-toggle-all:hover {
+  background: rgba(6, 182, 212, 0.12);
+}
+
+.chapter-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.chapter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(100, 116, 139, 0.2);
+  background: rgba(15, 23, 42, 0.3);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.chapter-pill:hover {
+  border-color: rgba(100, 116, 139, 0.4);
+  background: rgba(100, 116, 139, 0.08);
+}
+.chapter-pill.selected {
+  border-color: var(--accent-cyan);
+  background: rgba(6, 182, 212, 0.12);
+  color: #fff;
+  font-weight: 500;
+}
+.chapter-pill.disabled {
+  opacity: 0.6;
+  cursor: default;
+  border-style: dashed;
+}
+
+.ch-pill-count {
+  font-style: normal;
+  font-size: 0.78em;
+  opacity: 0.6;
+  font-weight: 400;
+}
+
 /* Difficulty distribution bars */
 .difficulty-bars {
   display: flex;
@@ -299,6 +379,11 @@
 
   .quick-select-bar { gap: 6px; padding: var(--space-xs) 0; }
   .quick-select-btn { padding: 5px 10px; font-size: 11px; }
+
+  .subject-chapter-area { padding: 8px 10px; }
+  .subject-chapter-header { font-size: 12px; }
+  .chapter-toggle-all { font-size: 10px; padding: 2px 6px; }
+  .chapter-pill { font-size: 11px; padding: 4px 8px; }
 
   .subject-actions { gap: var(--space-sm); padding: var(--space-sm) 0; padding-bottom: calc(var(--space-sm) + env(safe-area-inset-bottom, 0px)); }
   .subject-actions .btn { min-height: 44px; padding: 10px 24px; }

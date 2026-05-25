@@ -59,6 +59,14 @@
       return this.get('selected_subjects', []);
     },
 
+    saveSelectedChapters(chapterMap) {
+      return this.set('selected_chapters', chapterMap);
+    },
+
+    getSelectedChapters() {
+      return this.get('selected_chapters', {});
+    },
+
     savePlayerName(name) {
       return this.set('player_name', name);
     },

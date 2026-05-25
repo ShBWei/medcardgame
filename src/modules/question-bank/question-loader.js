@@ -14,6 +14,7 @@
     _loadCallbacks: [],
     _cacheVersion: null,  // set on init from MediCard.Config.version
     _questionIndex: {},   // qid → { subjectId, index } — built lazily on load
+    _chapterFilters: {},   // subjectId → [chapterName, ...] — active chapter filters
 
     init(selectedSubjectIds) {
       this._selectedSubjects = new Set(selectedSubjectIds);
@@ -318,6 +319,47 @@
     },
 
     getSubject(subjectId) {
+      var questions = this._cache[subjectId] || this.loadSubject(subjectId);
+      // Apply chapter filter if active for this subject
+      var filter = this._chapterFilters[subjectId];
+      if (questions && questions.length && filter && filter.length > 0) {
+        var filterSet = {};
+        for (var fi = 0; fi < filter.length; fi++) filterSet[filter[fi]] = true;
+        return questions.filter(function(q) { return filterSet[q.chapter]; });
+      }
+      return questions;
+    },
+
+    /** Get unique chapters for a subject (from loaded data). Returns [] if no chapter field. */
+    getChapters: function(subjectId) {
+      var questions = this._cache[subjectId];
+      if (!questions || !questions.length) return [];
+      var seen = {};
+      var chapters = [];
+      for (var i = 0; i < questions.length; i++) {
+        var ch = questions[i].chapter;
+        if (ch && !seen[ch]) { seen[ch] = true; chapters.push(ch); }
+      }
+      chapters.sort();
+      return chapters;
+    },
+
+    /** Set active chapter filter for a subject. Empty/null clears the filter. */
+    setChapterFilter: function(subjectId, chapters) {
+      if (!chapters || !chapters.length) {
+        delete this._chapterFilters[subjectId];
+      } else {
+        this._chapterFilters[subjectId] = chapters.slice();
+      }
+    },
+
+    /** Clear all chapter filters. */
+    clearChapterFilters: function() {
+      this._chapterFilters = {};
+    },
+
+    /** Get the unfiltered (raw) subject data — used internally by indexing and batch lookups. */
+    _getSubjectRaw: function(subjectId) {
       return this._cache[subjectId] || this.loadSubject(subjectId);
     },
 

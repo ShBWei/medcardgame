@@ -8,12 +8,13 @@
   MediCard.ScreenSubject = {
     _selected: new Set(),
     _forMultiplayer: false,
+    _chapterSelections: {},  // subjectId → Set of chapter names
 
     render() {
       var screen = document.getElementById('screen-subject');
       if (!screen) return;
 
-      // Restore saved selection
+      // Restore saved subject selection
       var saved = MediCard.Storage.getSelectedSubjects();
       if (saved && saved.length > 0) {
         this._selected = new Set(saved);
@@ -21,6 +22,15 @@
         // Default: select all 8 subjects
         var allSubjects = MediCard.Config.subjectCategories[0].subjects;
         this._selected = new Set(allSubjects);
+      }
+
+      // Restore saved chapter selections
+      var savedChapters = MediCard.Storage.getSelectedChapters ? MediCard.Storage.getSelectedChapters() : {};
+      this._chapterSelections = {};
+      for (var subj in savedChapters) {
+        if (savedChapters[subj] && savedChapters[subj].length) {
+          this._chapterSelections[subj] = new Set(savedChapters[subj]);
+        }
       }
 
       this._renderContent(screen);
@@ -71,6 +81,51 @@
       });
 
       html += '</div></div>';
+
+      // Chapter selection areas — one per selected subject
+      var allSubjectsArr = MediCard.Config.subjectCategories[0].subjects;
+      for (var si = 0; si < allSubjectsArr.length; si++) {
+        var subId2 = allSubjectsArr[si];
+        if (!self._selected.has(subId2)) continue;
+        var m2 = meta[subId2] || {};
+        var chapters = MediCard.QuestionLoader.getChapters(subId2);
+        var chapSel = self._chapterSelections[subId2];
+        // Auto-select all chapters if none selected yet for this subject
+        if (!chapSel && chapters.length > 0) {
+          chapSel = new Set(chapters);
+          self._chapterSelections[subId2] = chapSel;
+        }
+        html += '<div class="subject-chapter-area" data-subj="' + subId2 + '">' +
+          '<div class="subject-chapter-header">' +
+            '<span class="subject-chapter-title">' + (m2.icon || '📚') + ' ' + (m2.name || subId2) + ' · ' + (chapters.length || '全部') + '章节</span>';
+        if (chapters.length > 0) {
+          html += '<span class="chapter-toggle-all" data-action="all" data-subj="' + subId2 + '">全选</span>' +
+            '<span class="chapter-toggle-all" data-action="none" data-subj="' + subId2 + '">取消</span>';
+        }
+        html += '</div><div class="chapter-pills" data-subj="' + subId2 + '">';
+        if (chapters.length === 0) {
+          // No chapter data — show single "all questions" pill
+          var totalCount = MediCard.QuestionLoader.getSubjectCount(subId2);
+          html += '<span class="chapter-pill disabled">全部题目 <em class="ch-pill-count">' + totalCount + '</em></span>';
+        } else {
+          // Build chapter count map (one scan)
+          var rawQ = MediCard.QuestionLoader._getSubjectRaw(subId2);
+          var chCount = {};
+          if (rawQ) {
+            for (var qi = 0; qi < rawQ.length; qi++) {
+              var ch = rawQ[qi].chapter;
+              if (ch) chCount[ch] = (chCount[ch] || 0) + 1;
+            }
+          }
+          for (var ci = 0; ci < chapters.length; ci++) {
+            var chName = chapters[ci];
+            var isChSel = chapSel && chapSel.has(chName);
+            html += '<span class="chapter-pill' + (isChSel ? ' selected' : '') + '" data-chapter="' + self._escapeAttr(chName) + '" data-subj="' + subId2 + '">' +
+              chName + ' <em class="ch-pill-count">' + (chCount[chName] || 0) + '</em></span>';
+          }
+        }
+        html += '</div></div>';
+      }
 
       // Statistics
       html += '<div class="selection-stats">' +
@@ -130,7 +185,46 @@
           } else {
             self._selected = new Set(preset.split(','));
           }
+          // Reset chapter selections for subjects deselected by quick-select
+          var newSel = {};
+          for (var subj in self._chapterSelections) {
+            if (self._selected.has(subj)) newSel[subj] = self._chapterSelections[subj];
+          }
+          self._chapterSelections = newSel;
           MediCard.Storage.saveSelectedSubjects([...self._selected]);
+          self._renderContent(screen);
+        });
+      });
+
+      // Chapter pill toggles (event delegation on container)
+      screen.querySelectorAll('.chapter-pills').forEach(function(pills) {
+        pills.addEventListener('click', function(e) {
+          var pill = e.target.closest('.chapter-pill');
+          if (!pill || pill.classList.contains('disabled')) return;
+          var subj = pill.getAttribute('data-subj');
+          var chName = pill.getAttribute('data-chapter');
+          if (!self._chapterSelections[subj]) self._chapterSelections[subj] = new Set();
+          if (self._chapterSelections[subj].has(chName)) {
+            self._chapterSelections[subj].delete(chName);
+          } else {
+            self._chapterSelections[subj].add(chName);
+          }
+          self._renderContent(screen);
+        });
+      });
+
+      // Chapter toggle-all links
+      screen.querySelectorAll('.chapter-toggle-all').forEach(function(link) {
+        link.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var subj = this.getAttribute('data-subj');
+          var action = this.getAttribute('data-action');
+          var chapters = MediCard.QuestionLoader.getChapters(subj);
+          if (action === 'all') {
+            self._chapterSelections[subj] = new Set(chapters);
+          } else {
+            self._chapterSelections[subj] = new Set();
+          }
           self._renderContent(screen);
         });
       });
@@ -144,6 +238,30 @@
         }
         MediCard.GameState.setSelectedSubjects([...self._selected]);
         MediCard.QuestionLoader.init([...self._selected]);
+
+        // Apply chapter filters
+        MediCard.QuestionLoader.clearChapterFilters();
+        var chapterMap = {};
+        for (var subj in self._chapterSelections) {
+          var chSet = self._chapterSelections[subj];
+          if (!chSet || chSet.size === 0) continue;
+          var allChapters = MediCard.QuestionLoader.getChapters(subj);
+          // Only apply filter if not all chapters are selected
+          if (allChapters.length > 0 && chSet.size < allChapters.length) {
+            var chArr = Array.from(chSet);
+            MediCard.QuestionLoader.setChapterFilter(subj, chArr);
+            chapterMap[subj] = chArr;
+          } else if (allChapters.length === 0) {
+            // No chapter data — no filter needed
+          } else {
+            // All chapters selected — store for persistence but don't filter
+            chapterMap[subj] = Array.from(chSet);
+          }
+        }
+        // Persist chapter selections
+        if (MediCard.Storage.saveSelectedChapters) {
+          MediCard.Storage.saveSelectedChapters(chapterMap);
+        }
 
         if (self._forMultiplayer) {
           // Go to lobby for online 1v1
@@ -161,21 +279,46 @@
       });
     },
 
+    _escapeAttr: function(str) {
+      return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    },
+
     _countInCategory(subjects) {
       var self = this;
       return subjects.filter(function(s) { return self._selected.has(s); }).length;
     },
 
     _getStats() {
-      // Trigger background preload of selected subjects for accurate stats
       var self = this;
+      var stats = { total: 0, byDifficulty: { common: 0, rare: 0, epic: 0, legendary: 0 }, bySubject: {} };
       var selectedArr = Array.from(self._selected);
-      // Use pre-existing load method without blocking
-      selectedArr.forEach(function(subId) {
-        MediCard.QuestionLoader.getSubject(subId);
-      });
-      // Return stats — may use metadata for count if data not yet loaded
-      return MediCard.QuestionLoader.getSelectionStats();
+      for (var i = 0; i < selectedArr.length; i++) {
+        var subj = selectedArr[i];
+        var questions = MediCard.QuestionLoader._getSubjectRaw(subj);
+        if (!questions || !questions.length) {
+          var meta = MediCard.Config.subjectMeta[subj];
+          stats.total += meta ? (meta.questionCount || 0) : 0;
+          stats.bySubject[subj] = meta ? (meta.questionCount || 0) : 0;
+          continue;
+        }
+        // Apply chapter filter if user has made a partial selection
+        var chapSel = self._chapterSelections[subj];
+        var allChapters = MediCard.QuestionLoader.getChapters(subj);
+        var filterSet = null;
+        if (chapSel && chapSel.size > 0 && allChapters.length > 0 && chapSel.size < allChapters.length) {
+          filterSet = {};
+          chapSel.forEach(function(ch) { filterSet[ch] = true; });
+        }
+        for (var j = 0; j < questions.length; j++) {
+          var q = questions[j];
+          if (filterSet && !filterSet[q.chapter]) continue;
+          stats.total++;
+          var d = q.difficulty || 'common';
+          stats.byDifficulty[d] = (stats.byDifficulty[d] || 0) + 1;
+        }
+        stats.bySubject[subj] = (stats.bySubject[subj] || 0);
+      }
+      return stats;
     }
   };
 
