@@ -156,26 +156,42 @@
         '</div>';
     },
 
-    /** Preload all subjects in parallel. Cached subjects appear instantly. */
+    /**
+     * Preload subjects with bandwidth-friendly staggering.
+     * First batch (visible grid row) loads immediately.
+     * Remaining subjects load after a short delay to avoid
+     * saturating connections and slowing the user's clicked subject.
+     */
     _preloadAllSubjects: function(subjects) {
       var self = this;
       var loader = MediCard.QuestionLoader;
       if (!loader) return;
 
-      var pending = 0;
+      // Separate cached from uncached
+      var uncached = [];
       for (var i = 0; i < subjects.length; i++) {
-        var subj = subjects[i];
-        if (this._isSubjectLoaded(subj)) continue; // already in memory
-        pending++;
-        // loadSubject triggers lazy fetch + localStorage cache
-        loader.loadSubject(subj);
+        if (!this._isSubjectLoaded(subjects[i])) uncached.push(subjects[i]);
       }
-
-      if (pending === 0) {
-        // All cached — remove loading indicator immediately
+      if (uncached.length === 0) {
         var statusEl = document.getElementById('study-load-status');
         if (statusEl) statusEl.style.display = 'none';
         return;
+      }
+
+      // Load first 4 immediately (visible grid row)
+      var firstBatch = Math.min(4, uncached.length);
+      for (var f = 0; f < firstBatch; f++) {
+        loader.loadSubject(uncached[f]);
+      }
+
+      // Stagger remaining subjects — 300ms gap avoids bandwidth saturation
+      if (uncached.length > firstBatch) {
+        var idx = firstBatch;
+        var staggerInterval = setInterval(function() {
+          if (idx >= uncached.length) { clearInterval(staggerInterval); return; }
+          loader.loadSubject(uncached[idx]);
+          idx++;
+        }, 300);
       }
 
       // Poll until all subjects are loaded, updating the grid as each arrives
@@ -191,12 +207,9 @@
             newlyLoaded.push(subj);
           }
         }
-
-        // Update cards that just finished loading
         for (var k = 0; k < newlyLoaded.length; k++) {
           self._updateSubjectCard(newlyLoaded[k]);
         }
-
         var statusEl = document.getElementById('study-load-status');
         if (stillPending === 0) {
           clearInterval(checkInterval);
@@ -254,17 +267,15 @@
         return;
       }
 
-      // Subject not loaded yet — kick off fetch FIRST, THEN register callback
+      // Subject not loaded yet — use per-subject callback (only wait for THIS subject)
       this._showLoading();
-      MediCard.QuestionLoader.loadSubject(subjectId);
-      MediCard.QuestionLoader.onReady(function() {
+      MediCard.QuestionLoader.onSubjectReady(subjectId, function() {
         var qs = MediCard.QuestionLoader.getSubject(subjectId);
         if (qs && qs.length > 0) {
           self._questions = self._shuffleQuestions(qs);
           self._questionIndex = self._getSavedIndex(subjectId);
           self._renderQuestion();
         } else {
-          // Still not available after load attempt — show error
           document.getElementById('study-main-area').innerHTML = '' +
             '<div class="study-empty">' +
               '<div class="study-empty-icon">⚠️</div>' +
