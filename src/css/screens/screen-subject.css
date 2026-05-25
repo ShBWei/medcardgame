@@ -13,8 +13,8 @@
   /* Fill parent and allow scrolling — min-height so content can grow */
   flex: 1;
   min-height: 0;
-  /* Extra bottom padding so action buttons clear mobile browser chrome */
-  padding-bottom: calc(48px + env(safe-area-inset-bottom, 0px));
+  /* padding-bottom handled by sticky .subject-actions + safe-area inset */
+  padding-bottom: 0;
 }
 
 /* Prevent flex children from collapsing instead of scrolling */
@@ -223,13 +223,19 @@
   font-size: 11px;
 }
 
-/* Bottom actions */
+/* Bottom actions — sticky so always visible on all browsers/viewports */
 .subject-actions {
   display: flex;
   gap: var(--space-md);
   justify-content: center;
   padding: var(--space-md) 0;
+  padding-bottom: calc(var(--space-md) + env(safe-area-inset-bottom, 0px));
   flex-wrap: wrap;
+  position: sticky;
+  bottom: 0;
+  background: linear-gradient(transparent, var(--bg-primary) 40%);
+  margin-top: auto;
+  z-index: 5;
 }
 
 /* Difficulty distribution bars */
@@ -294,7 +300,7 @@
   .quick-select-bar { gap: 6px; padding: var(--space-xs) 0; }
   .quick-select-btn { padding: 5px 10px; font-size: 11px; }
 
-  .subject-actions { gap: var(--space-sm); padding: var(--space-sm) 0; }
+  .subject-actions { gap: var(--space-sm); padding: var(--space-sm) 0; padding-bottom: calc(var(--space-sm) + env(safe-area-inset-bottom, 0px)); }
   .subject-actions .btn { min-height: 44px; padding: 10px 24px; }
 
   .selection-stats { padding: var(--space-sm); gap: var(--space-sm); }
