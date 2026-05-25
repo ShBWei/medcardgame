@@ -252,14 +252,14 @@
       html += '<div class="ntb-card-batch" id="ntb-cards-' + _esc(subjName) + '" data-subj="' + _esc(subjName) + '">';
 
       if (cache && Object.keys(cache).length > 0) {
-        // Render first batch immediately for instant feedback
+        // Cache hit: render first batch immediately for instant feedback
         var firstBatch = Math.min(this._renderBatchSize, ids.length);
         for (var i = 0; i < firstBatch; i++) {
           html += this._renderCardHTML(ids[i], i, subjName, cache[ids[i]] || null, isLoaded);
         }
         html += '</div>';
 
-        // Schedule remaining batches
+        // Schedule remaining batches via requestAnimationFrame
         if (ids.length > firstBatch) {
           var cardsContainerId = 'ntb-cards-' + subjName;
           var remainingIds = ids.slice(firstBatch);
@@ -268,12 +268,18 @@
             self._renderCardBatch(cardsContainerId, remainingIds, firstBatch, subjName, isLoaded);
           }, 0);
         }
-      } else {
-        // Cache miss or not loaded — render placeholders
+      } else if (isLoaded) {
+        // Subjects loaded but cache miss — render all cards (small count typically)
         for (var i2 = 0; i2 < ids.length; i2++) {
           html += this._renderCardHTML(ids[i2], i2, subjName, null, isLoaded);
         }
         html += '</div>';
+      } else {
+        // Cache not ready + subjects not loaded — lightweight loading placeholder
+        // (heavy placeholder rendering was the main speed bottleneck)
+        html += '<div class="ntb-loading-placeholder">' +
+          '<span class="ntb-loading-dot"></span> 题目加载中，请稍候...' +
+          '</div></div>';
       }
 
       return html;
@@ -315,7 +321,7 @@
       var html = '<div class="ntb-q-card" data-qid="' + _esc(qid) + '" data-subj="' + _esc(subjName) + '">';
       html += '<div class="ntb-q-header">';
       html += '<span class="ntb-q-num">#' + (index + 1) + '</span>';
-      html += '<span class="ntb-q-text">' + _esc(q ? (q.question || q.q || '') : (isLoaded ? '(题目未找到)' : '加载中...')) + '</span>';
+      html += '<span class="ntb-q-text">' + _esc(q ? (q.question || q.q || '') : (isLoaded ? '(题目未找到)' : '加载中...')) + '</span>' + this._multiSelectBadge(q);
       html += '<span class="ntb-q-toggle">▼</span>';
       html += '</div>';
       html += '<div class="ntb-q-detail" style="display:none;">';
@@ -332,20 +338,53 @@
       return html;
     },
 
+    /** Check if a question requires multiple answers */
+    _isMultiSelect: function(q) {
+      if (!q) return false;
+      // Primary marker: questionType field (same as study module)
+      if (q.questionType === 'multiple') return true;
+      // Secondary markers
+      if (q.multiSelect === true || q.type === 'multi-select') return true;
+      // Fallback: count distinct correct answers
+      var correct = q.correctAnswers || q.ans || [];
+      var labels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+      var seen = {};
+      var count = 0;
+      for (var ci = 0; ci < correct.length; ci++) {
+        var key = correct[ci];
+        if (typeof key === 'number') key = labels[key];
+        if (!seen[key]) { seen[key] = true; count++; }
+      }
+      return count > 1;
+    },
+
+    /** Build multi-select indicator badge */
+    _multiSelectBadge: function(q) {
+      return this._isMultiSelect(q) ? ' <span class="ntb-multi-badge">多选</span>' : '';
+    },
+
     /** Render the expanded detail section for a single question */
     _renderQuestionDetail: function(q) {
       var html = '';
+      if (this._isMultiSelect(q)) {
+        html += '<div class="ntb-multi-notice">📋 多选题 — 需选择多个正确答案</div>';
+      }
       var opts = q.options || q.opts || [];
       var correct = q.correctAnswers || q.ans || [];
+      var labels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
       var correctSet = {};
-      for (var ci = 0; ci < correct.length; ci++) correctSet[correct[ci]] = true;
+      for (var ci = 0; ci < correct.length; ci++) {
+        var ck = correct[ci];
+        if (typeof ck === 'number') ck = labels[ck];
+        correctSet[ck] = true;
+      }
 
       html += '<div class="ntb-options">';
-      var labels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
       for (var oi = 0; oi < opts.length; oi++) {
-        var isCorrect = correctSet[oi] || correctSet[String(oi)] || correctSet[labels[oi]];
+        var label = labels[oi];
+        var isCorrect = correctSet[oi] || correctSet[String(oi)] || correctSet[label];
         html += '<div class="ntb-option' + (isCorrect ? ' correct' : '') + '">' +
-          '<span class="ntb-opt-label">' + labels[oi] + '</span> ' + _esc(opts[oi]) +
+          '<span class="ntb-opt-label">' + label + '</span> ' + _esc(opts[oi]) +
           (isCorrect ? ' ✓' : '') +
           '</div>';
       }
@@ -461,27 +500,49 @@
       this._showNextTestQuestion();
     },
 
-    /** Render a test question into the test area */
+    /** Render a test question into the test area.
+     *  Supports both single-select and multi-select questions. */
     _renderTestQuestion: function(q, qid, area) {
       var self = this;
       var opts = q.options || q.opts || [];
       var correct = q.correctAnswers || q.ans || [];
-      var correctSet = {};
-      for (var ci = 0; ci < correct.length; ci++) correctSet[correct[ci]] = true;
-
+      var isMulti = this._isMultiSelect(q);
       var labels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+
+      // Build correct set for validation
+      var correctSet = {};
+      for (var ci = 0; ci < correct.length; ci++) {
+        var ck = correct[ci];
+        if (typeof ck === 'number') ck = labels[ck];
+        correctSet[ck] = true;
+      }
+
+      this._testCurrentCorrectSet = correctSet;
+      this._testCurrentIsMulti = isMulti;
+      this._testSelectedOptions = [];
+
+      var multiHint = isMulti
+        ? '<div class="ntb-multi-notice">📋 多选题 — 点击选项选中/取消，选好后点「确认提交」</div>'
+        : '';
+      var submitBtn = isMulti
+        ? '<button class="btn btn-primary" id="ntb-test-submit" style="margin-top:12px;width:100%;">✅ 确认提交</button>'
+        : '';
 
       area.innerHTML = '' +
         '<div class="ntb-test-question">' +
-          '<div class="ntb-test-q-num">第 ' + (this._testIndex + 1) + '/' + this._testQuestions.length + ' 题</div>' +
+          '<div class="ntb-test-q-num">第 ' + (this._testIndex + 1) + '/' + this._testQuestions.length + ' 题' +
+            (isMulti ? ' <span class="ntb-multi-badge">多选</span>' : '') +
+          '</div>' +
           '<div class="ntb-test-q-text">' + _esc(q.question || q.q || '') + '</div>' +
+          multiHint +
           '<div class="ntb-test-options" id="ntb-test-options">' +
             opts.map(function(opt, oi) {
-              return '<button class="ntb-test-opt-btn" data-oi="' + oi + '">' +
+              return '<button class="ntb-test-opt-btn' + (isMulti ? ' multi-select' : '') + '" data-oi="' + oi + '">' +
                 '<span class="ntb-opt-label">' + labels[oi] + '</span> ' + _esc(opt) +
                 '</button>';
             }).join('') +
           '</div>' +
+          submitBtn +
           '<div id="ntb-test-feedback" class="ntb-test-feedback" style="display:none;"></div>' +
           '<div id="ntb-test-explanation" style="display:none;margin-top:12px;padding:12px;background:rgba(0,0,0,0.15);border-radius:8px;font-size:12px;color:var(--text-secondary);"></div>' +
           '<button class="btn btn-primary" id="ntb-test-next" style="display:none;margin-top:12px;width:100%;">下一题 →</button>' +
@@ -490,10 +551,26 @@
       // Attach option click handlers
       var optBtns = area.querySelectorAll('.ntb-test-opt-btn');
       for (var oi2 = 0; oi2 < optBtns.length; oi2++) {
-        optBtns[oi2].addEventListener('click', function() {
-          var selectedOi = parseInt(this.getAttribute('data-oi'), 10);
-          self._handleTestAnswer(qid, selectedOi, correctSet, opts, q);
-        });
+        (function(btn, oi) {
+          btn.addEventListener('click', function() {
+            if (isMulti) {
+              self._toggleMultiOption(btn, oi);
+            } else {
+              self._handleTestAnswer(qid, [oi], q);
+            }
+          });
+        })(optBtns[oi2], oi2);
+      }
+
+      // Multi-select submit button
+      if (isMulti) {
+        var submitBtnEl = document.getElementById('ntb-test-submit');
+        if (submitBtnEl) {
+          submitBtnEl.addEventListener('click', function() {
+            if (self._testSelectedOptions.length === 0) return;
+            self._handleTestAnswer(qid, self._testSelectedOptions.slice(), q);
+          });
+        }
       }
 
       var nextBtn = document.getElementById('ntb-test-next');
@@ -505,19 +582,68 @@
       }
     },
 
-    _handleTestAnswer: function(qid, selectedOi, correctSet, opts, q) {
-      var isCorrect = correctSet[selectedOi] || correctSet[String(selectedOi)] ||
-                      correctSet[['A','B','C','D','E'][selectedOi]];
+    /**
+     * Toggle a multi-select option on/off. Updates button visual state
+     * and the _testSelectedOptions array.
+     */
+    _toggleMultiOption: function(btn, oi) {
+      var idx = this._testSelectedOptions.indexOf(oi);
+      if (idx >= 0) {
+        this._testSelectedOptions.splice(idx, 1);
+        btn.classList.remove('selected');
+      } else {
+        this._testSelectedOptions.push(oi);
+        btn.classList.add('selected');
+      }
+    },
 
-      // Disable all option buttons
+    _handleTestAnswer: function(qid, selectedOis, q) {
+      var correctSet = this._testCurrentCorrectSet || {};
+      var isMulti = this._testCurrentIsMulti;
+      var labels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+
+      // Determine correctness
+      var isCorrect;
+      if (isMulti) {
+        var selectedSet = {};
+        for (var si = 0; si < selectedOis.length; si++) {
+          selectedSet[labels[selectedOis[si]]] = true;
+        }
+        // All correct must be selected
+        var allCorrectSelected = true;
+        for (var ck in correctSet) {
+          if (!selectedSet[ck]) { allCorrectSelected = false; break; }
+        }
+        // No extra (wrong) selections
+        var noExtraSelected = true;
+        for (var sl in selectedSet) {
+          if (!correctSet[sl]) { noExtraSelected = false; break; }
+        }
+        isCorrect = allCorrectSelected && noExtraSelected;
+      } else {
+        var so = selectedOis[0];
+        isCorrect = correctSet[so] || correctSet[String(so)] || correctSet[labels[so]];
+      }
+
+      // Disable all option buttons and highlight correct/wrong
       var optBtns = document.querySelectorAll('#ntb-test-options .ntb-test-opt-btn');
       for (var i = 0; i < optBtns.length; i++) {
         optBtns[i].disabled = true;
         var oi = parseInt(optBtns[i].getAttribute('data-oi'), 10);
-        var isRight = correctSet[oi] || correctSet[String(oi)] || correctSet[['A','B','C','D','E'][oi]];
+        var label = labels[oi];
+        var isRight = correctSet[oi] || correctSet[String(oi)] || correctSet[label];
         if (isRight) optBtns[i].classList.add('correct');
-        if (oi === selectedOi && !isCorrect) optBtns[i].classList.add('wrong');
+        if (!isMulti) {
+          if (oi === selectedOis[0] && !isCorrect) optBtns[i].classList.add('wrong');
+        } else {
+          var wasSelected = optBtns[i].classList.contains('selected');
+          if (wasSelected && !isRight) optBtns[i].classList.add('wrong');
+        }
       }
+
+      // Hide submit button
+      var submitBtn = document.getElementById('ntb-test-submit');
+      if (submitBtn) submitBtn.style.display = 'none';
 
       this._testAnswered++;
 
@@ -532,13 +658,8 @@
           this._testAnsweredIds.push(qid);
           feedback.innerHTML = '<span style="color:#10b981;">✅ 回答正确！此题已从错题本移除</span>';
         } else {
-          var labels = ['A', 'B', 'C', 'D', 'E'];
           var correctLabels = [];
-          for (var ci = 0; ci < (q.correctAnswers || q.ans || []).length; ci++) {
-            var ca = (q.correctAnswers || q.ans || [])[ci];
-            if (typeof ca === 'number') correctLabels.push(labels[ca]);
-            else correctLabels.push(ca);
-          }
+          for (var ck2 in correctSet) { correctLabels.push(ck2); }
           feedback.innerHTML = '<span style="color:#ef4444;">❌ 回答错误！正确答案：' + correctLabels.join(', ') + '</span>';
         }
       }
