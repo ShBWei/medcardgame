@@ -144,6 +144,7 @@
       this._mode = 'host';
       this._maxPlayers = maxPlayers;
       this._reconnectAttempts = 0;
+      this._connectionFailed = false;
 
       console.log('[Lobby] _createRoom called, name=' + playerName + ', maxPlayers=' + maxPlayers);
 
@@ -160,6 +161,16 @@
       var peerId = 'medicard-' + roomCode + '-host';
       console.log('[Lobby] Creating Peer, id=' + peerId + ', cfg=', JSON.stringify(cfg));
 
+      // ── Connection timeout: if PeerJS doesn't connect within 12s, abort ──
+      var connTimeout = setTimeout(function() {
+        if (self._connectionFailed) return;
+        self._connectionFailed = true;
+        console.error('[Lobby] Host Peer connection timed out after 12s');
+        self._cleanupHostPeer();
+        alert('联机服务器连接超时，请检查网络后重试。');
+        MediCard.GameState.goToScreen('title');
+      }, 12000);
+
       try {
         this._intentionallyDestroying = true;
         if (MediCard.NetworkHost._peer) {
@@ -175,8 +186,10 @@
         });
 
         MediCard.NetworkHost._peer.on('open', function(id) {
+          clearTimeout(connTimeout);
+          self._connectionFailed = false;
           MediCard.NetworkHost._connected = true;
-          self._reconnectAttempts = 0; // Reset on successful connection
+          self._reconnectAttempts = 0;
           self._showRoomPanel();
           self._renderPlayerSlots();
         });
@@ -187,6 +200,9 @@
         });
 
         MediCard.NetworkHost._peer.on('error', function(err) {
+          if (self._connectionFailed) return;
+          self._connectionFailed = true;
+          clearTimeout(connTimeout);
           console.error('[Lobby] Peer error:', err.type, err.message);
           if (err.type === 'unavailable-id') {
             alert('房间号冲突，请重新创建房间。');
@@ -195,11 +211,12 @@
           } else {
             alert('创建房间失败 [' + err.type + ']: ' + (err.message || '未知错误'));
           }
+          self._cleanupHostPeer();
           MediCard.GameState.goToScreen('title');
         });
 
         MediCard.NetworkHost._peer.on('disconnected', function() {
-          if (self._intentionallyDestroying) return;
+          if (self._intentionallyDestroying || self._connectionFailed) return;
           self._reconnectAttempts++;
           console.log('[Lobby] Host Peer disconnected, attempt ' + self._reconnectAttempts + '/' + self._maxReconnectAttempts);
           if (self._reconnectAttempts <= self._maxReconnectAttempts &&
@@ -213,7 +230,8 @@
             }, delay);
           } else {
             console.log('[Lobby] Max reconnect attempts reached for host, giving up');
-            try { MediCard.NetworkHost._peer.destroy(); } catch(e) {}
+            self._connectionFailed = true;
+            self._cleanupHostPeer();
             alert('联机连接已断开（重试' + self._maxReconnectAttempts + '次均失败）。\n请检查服务器状态后重试。');
             MediCard.GameState.goToScreen('title');
           }
@@ -237,9 +255,45 @@
         relay.connect(roomCode, peerId);
 
       } catch (e) {
+        clearTimeout(connTimeout);
+        self._connectionFailed = true;
+        self._cleanupHostPeer();
         alert('联机初始化失败: ' + e.message);
         MediCard.GameState.goToScreen('title');
       }
+    },
+
+    _cleanupHostPeer: function() {
+      if (this._startPoll) { clearInterval(this._startPoll); this._startPoll = null; }
+      if (this._healthCheckInterval) { clearInterval(this._healthCheckInterval); this._healthCheckInterval = null; }
+      try {
+        if (MediCard.NetworkHost._peer && !MediCard.NetworkHost._peer.destroyed) {
+          MediCard.NetworkHost._peer.destroy();
+        }
+      } catch(e) {}
+      MediCard.NetworkHost._peer = null;
+      MediCard.NetworkHost._connected = false;
+      MediCard.NetworkHost._connections = [];
+      MediCard.NetworkHost._relayReady = false;
+      this._relayReady = false;
+      // Disconnect relay transport
+      try { MediCard.RelayTransport.disconnect(); } catch(e) {}
+      // Clean up global room state
+      MediCard.RoomManager.players = [];
+    },
+
+    _cleanupClientPeer: function() {
+      if (this._startPoll) { clearInterval(this._startPoll); this._startPoll = null; }
+      if (this._healthCheckInterval) { clearInterval(this._healthCheckInterval); this._healthCheckInterval = null; }
+      try {
+        if (MediCard.NetworkClient._peer && !MediCard.NetworkClient._peer.destroyed) {
+          MediCard.NetworkClient._peer.destroy();
+        }
+      } catch(e) {}
+      MediCard.NetworkClient._peer = null;
+      MediCard.NetworkClient._connected = false;
+      this._relayReady = false;
+      try { MediCard.RelayTransport.disconnect(); } catch(e) {}
     },
 
     _setupHostConnection(conn) {
@@ -328,6 +382,7 @@
       this._mode = 'client';
       this._roomCode = roomCode;
       this._reconnectAttempts = 0;
+      this._connectionFailed = false;
 
       if (typeof Peer === 'undefined') {
         alert('PeerJS 联机库未加载，请检查网络连接后刷新页面。');
@@ -336,6 +391,16 @@
 
       var cfg = MediCard.Config.peerjs;
       var clientId = 'medicard-' + roomCode + '-client-' + Math.random().toString(36).substr(2, 6);
+
+      // ── Connection timeout: if PeerJS doesn't connect within 12s, abort ──
+      var connTimeout = setTimeout(function() {
+        if (self._connectionFailed) return;
+        self._connectionFailed = true;
+        console.error('[Lobby] Client Peer connection timed out after 12s');
+        self._cleanupClientPeer();
+        alert('联机服务器连接超时，请检查网络后重试。');
+        MediCard.GameState.goToScreen('title');
+      }, 12000);
 
       try {
         this._intentionallyDestroying = true;
@@ -351,6 +416,8 @@
         });
 
         MediCard.NetworkClient._peer.on('open', function(id) {
+          clearTimeout(connTimeout);
+          self._connectionFailed = false;
           self._reconnectAttempts = 0;
           var hostId = 'medicard-' + roomCode + '-host';
           var conn = MediCard.NetworkClient._peer.connect(hostId, { reliable: true });
@@ -358,17 +425,21 @@
         });
 
         MediCard.NetworkClient._peer.on('error', function(err) {
+          if (self._connectionFailed) return;
+          self._connectionFailed = true;
+          clearTimeout(connTimeout);
           console.error('[Lobby] Client Peer error:', err.type, err.message);
           if (err.type === 'server-error' || err.type === 'network') {
             alert('无法连接到联机服务器，请确保服务器已启动。\n(' + err.message + ')');
           } else {
             alert('加入房间失败: ' + (err.message || err.type || '未知错误') + '\n请确认房间号正确且房主在线。');
           }
+          self._cleanupClientPeer();
           MediCard.GameState.goToScreen('title');
         });
 
         MediCard.NetworkClient._peer.on('disconnected', function() {
-          if (self._intentionallyDestroying) return;
+          if (self._intentionallyDestroying || self._connectionFailed) return;
           self._reconnectAttempts++;
           console.log('[Lobby] Client Peer disconnected, attempt ' + self._reconnectAttempts + '/' + self._maxReconnectAttempts);
           if (self._reconnectAttempts <= self._maxReconnectAttempts &&
@@ -382,7 +453,8 @@
             }, delay);
           } else {
             console.log('[Lobby] Max reconnect attempts reached for client');
-            try { MediCard.NetworkClient._peer.destroy(); } catch(e) {}
+            self._connectionFailed = true;
+            self._cleanupClientPeer();
             alert('无法连接到联机服务器（重试' + self._maxReconnectAttempts + '次均失败）。\n请检查服务器状态后重试。');
             MediCard.GameState.goToScreen('title');
           }
