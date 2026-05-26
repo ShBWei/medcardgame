@@ -491,7 +491,11 @@
         this._progress[subj] = { answered: 0, correct: 0, index: 0 };
       }
       this._progress[subj].answered++;
-      if (correct) this._progress[subj].correct++;
+      if (correct) {
+        this._progress[subj].correct++;
+        // Push correct answer to leaderboard: +1 point per correct answer (local cache)
+        this._pushCorrectToLeaderboard();
+      }
       this._progress[subj].index = this._questionIndex + 1;
       if (this._progress[subj].index >= this._questions.length) {
         this._progress[subj].index = 0; // wrap around
@@ -1205,39 +1209,77 @@
     /**
      * Submit cumulative study score to the leaderboard.
      * One correct answer = one point. Uses the battle leaderboard.
+     * Called on every correct answer (local update) + session summary (server push).
      */
     _pushStudyScoreToLeaderboard: function(sessionCorrect, sessionTotal, sessionPct) {
       try {
         var MC = window.MedicalKillCommunity;
-        if (!MC || !MC.updateLeaderboard) return;
+        if (!MC || !MC.updateLeaderboard) {
+          console.warn('[Study] Leaderboard not available — MedicalKillCommunity not loaded');
+          return;
+        }
 
         // Compute cumulative study stats across all subjects in _progress
         var cumulativeCorrect = 0;
         var cumulativeAnswered = 0;
         for (var subj in this._progress) {
+          if (!this._progress.hasOwnProperty(subj)) continue;
           var p = this._progress[subj];
           cumulativeCorrect += p.correct || 0;
           cumulativeAnswered += p.answered || 0;
         }
 
-        var user = MediCard.Storage && MediCard.Storage.getCurrentUser ? MediCard.Storage.getCurrentUser() : null;
+        var userId = '';
+        var userName = '';
+        try {
+          if (MediCard.Storage) {
+            userId = MediCard.Storage.getCurrentUserId() || '';
+            var user = MediCard.Storage.getCurrentUser();
+            userName = user ? user.username : '';
+          }
+        } catch(e) {}
+
+        // Fall back to localStorage if Storage API failed
+        if (!userId) {
+          try {
+            var raw = localStorage.getItem('medicard_current_user_id');
+            userId = raw ? JSON.parse(raw) : '';
+          } catch(e) {}
+        }
+        if (!userName) {
+          try {
+            var users = JSON.parse(localStorage.getItem('medicard_users') || '[]');
+            for (var ui = 0; ui < users.length; ui++) {
+              if (users[ui].id === userId) { userName = users[ui].username; break; }
+            }
+          } catch(e) {}
+        }
+
         var entry = {
-          userId: MediCard.Storage ? MediCard.Storage.getCurrentUserId() : '',
-          name: user ? user.username : '',
-          score: cumulativeCorrect,               // +1 per correct answer
-          wins: cumulativeAnswered,                // total answered (for sorting tiebreak)
-          totalGames: sessionTotal,                // this session's total
+          userId: userId || 'anonymous',
+          name: userName || '学者',
+          score: cumulativeCorrect,
+          wins: cumulativeAnswered,
+          totalGames: sessionTotal,
           winRate: cumulativeAnswered > 0 ? Math.round(cumulativeCorrect / cumulativeAnswered * 100) : 0
         };
 
-        // Update local cache
+        // Update local cache immediately
         MC.updateLeaderboard('battle', entry);
 
-        // Push to server (with weekly flag)
-        if (MC.Leaderboard && MC.Leaderboard.pushToServer) {
+        // Push to server (at session summary only, to avoid spamming)
+        if (sessionPct !== undefined && MC.Leaderboard && MC.Leaderboard.pushToServer) {
           MC.Leaderboard.pushToServer(entry, true);
         }
-      } catch(e) { /* silent */ }
+      } catch(e) {
+        console.error('[Study] Failed to push score to leaderboard:', e);
+      }
+    },
+
+    /** Push score incrementally (local only) on each correct answer */
+    _pushCorrectToLeaderboard: function() {
+      // Only update local cache on each correct answer; server push at session end
+      this._pushStudyScoreToLeaderboard(0, 0, undefined);
     },
 
     _attachSummaryEvents: function() {
