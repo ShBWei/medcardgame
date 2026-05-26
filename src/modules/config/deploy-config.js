@@ -28,13 +28,35 @@
     },
 
     /**
-     * Signaling server override for static hosting (Cloudflare Pages / GitHub Pages).
-     * Set to 'wss://your-server.com' to enable multiplayer on static deployments.
-     * When null (default), uses same-origin signaling (works for local/server modes).
+     * API server base URL. On static hosting (Cloudflare Pages / GitHub Pages),
+     * defaults to the VPS so leaderboard, accounts, and study-progress work.
+     * Set to '' to disable, or your custom domain (e.g. 'https://mygame.com').
      *
-     * Example: MediCard.Config.signalingServer = 'wss://relay.mygame.com';
+     * Must use HTTPS if your Cloudflare Pages site is HTTPS.
+     * Using a Cloudflare-proxied domain pointing to your VPS is recommended.
      */
-    signalingServer: null,
+    apiServer: (function() {
+      var hn = window.location.hostname;
+      if (hn.includes('pages.dev') || hn.includes('github.io')) {
+        return 'http://134.175.165.223';
+      }
+      return '';  // same-origin for local/server modes
+    })(),
+
+    /**
+     * Signaling server override for static hosting (Cloudflare Pages / GitHub Pages).
+     * Defaults to matching apiServer (ws protocol) for Cloudflare Pages.
+     * When empty/null, uses same-origin signaling (works for local/server modes).
+     *
+     * Override: MediCard.Config.signalingServer = 'wss://relay.mygame.com';
+     */
+    signalingServer: (function() {
+      var hn = window.location.hostname;
+      if (hn.includes('pages.dev') || hn.includes('github.io')) {
+        return 'ws://134.175.165.223';
+      }
+      return null;
+    })(),
 
     peerjs: {
       get host() {
@@ -229,4 +251,18 @@
   };
 
   window.MediCard = MediCard;
+
+  // ── Cloudflare Pages / static hosting: redirect /api/ calls to VPS ──
+  // Intercepts all fetch('/api/...') calls and rewrites them to the configured
+  // apiServer. This fixes leaderboard, accounts, player-stats, and study-progress
+  // on Cloudflare Pages without modifying each calling module.
+  if (MediCard.Config.isStaticHosting && MediCard.Config.apiServer) {
+    var _origFetch = window.fetch;
+    window.fetch = function(url, opts) {
+      if (typeof url === 'string' && url.indexOf('/api/') === 0) {
+        url = MediCard.Config.apiServer + url;
+      }
+      return _origFetch.call(window, url, opts);
+    };
+  }
 })();
