@@ -67,6 +67,22 @@
       return this.get('selected_chapters', {});
     },
 
+    saveChapterProgress(progressMap) {
+      return this.set('chapter_progress', progressMap);
+    },
+
+    getChapterProgress() {
+      return this.get('chapter_progress', {});
+    },
+
+    getChapterExpanded() {
+      return this.get('chapter_expanded', {});
+    },
+
+    saveChapterExpanded(expandedMap) {
+      return this.set('chapter_expanded', expandedMap);
+    },
+
     savePlayerName(name) {
       return this.set('player_name', name);
     },

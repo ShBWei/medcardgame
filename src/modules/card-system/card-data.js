@@ -39,6 +39,7 @@
       var typeInfo = this.TYPES[type] || this.TYPES.attack;
       return {
         id: question.id,
+        questionId: question.id,
         cardType: type,
         cardSubtype: subtype || '',
         cardName: typeInfo.name,
@@ -92,6 +93,7 @@
       if (!def) return this.createCard(question, 'tactic', subtype);
       return {
         id: 'tac_' + subtype + '_' + question.id,
+        questionId: question.id,
         cardType: 'tactic',
         cardSubtype: subtype,
         cardName: def.name,
@@ -119,6 +121,7 @@
       if (!def) return this.createCard(question, 'equipment', subtype);
       return {
         id: 'equ_' + subtype + '_' + question.id,
+        questionId: question.id,
         cardType: 'equipment',
         cardSubtype: subtype,
         cardName: def.name,
@@ -147,6 +150,7 @@
       if (!def) return this.createCard(question, 'delayed', subtype);
       return {
         id: 'dly_' + subtype + '_' + question.id,
+        questionId: question.id,
         cardType: 'delayed',
         cardSubtype: subtype,
         cardName: def.name,

@@ -5133,7 +5133,7 @@
 
       // Save wrong answers to WrongQuestionBook for review
       if (!result.correct) {
-        var qId = (card && card.id) || (this._pendingCard && this._pendingCard.card && this._pendingCard.card.id);
+        var qId = (card && (card.questionId || card.id)) || (this._pcCard && this._pcCard.questionId) || (this._pendingCard && this._pendingCard.card && (this._pendingCard.card.questionId || this._pendingCard.card.id));
         if (qId && MediCard.WrongQuestionBook) {
           try { MediCard.WrongQuestionBook.addWrong(qId); } catch(e) { /* silent */ }
         }

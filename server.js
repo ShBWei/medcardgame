@@ -469,6 +469,7 @@ const staticServer = http.createServer((req, res) => {
   }
 
   if (url === '/') url = '/index.html';
+  if (url === '/favicon.ico') url = '/favicon.svg';
 
   // Normalize and prevent traversal
   const normalized = path.normalize(url).replace(/\\/g, '/');
@@ -512,11 +513,17 @@ const staticServer = http.createServer((req, res) => {
     return;
   }
 
+  // Use sync read for small files (< 128KB) to avoid stream overhead under concurrency.
+  // Only large subject data files (500KB+) need the streaming approach.
+  var stat = fs.statSync(realPath);
+  var useSmallFile = stat.size < 131072; // 128KB threshold
+
   const ext = path.extname(realPath);
   const contentType = MIME[ext] || 'application/octet-stream';
 
   // Add CSP to HTML responses
   const headers = { ...SECURITY_HEADERS, 'Content-Type': contentType };
+  headers['Connection'] = 'keep-alive';
   if (ext === '.html') {
     headers['Content-Security-Policy'] =
       "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com 'unsafe-inline'; " +
@@ -526,7 +533,6 @@ const staticServer = http.createServer((req, res) => {
     headers['Pragma'] = 'no-cache';
     headers['Expires'] = '0';
   } else if (ext === '.js' || ext === '.css') {
-    // Subject files are large (3.2MB total), rarely change — cache 24h
     if (url.startsWith('/src/modules/question-bank/subjects/')) {
       headers['Cache-Control'] = 'public, max-age=86400';
     } else {
@@ -538,17 +544,56 @@ const staticServer = http.createServer((req, res) => {
     headers['Cache-Control'] = 'public, max-age=3600';
   }
 
-  // Gzip text-based responses when client supports it (~70% smaller for subject JS)
+  // Gzip text-based responses when client supports it
   const textExts = ['.html', '.css', '.js', '.json', '.svg'];
-  if (textExts.includes(ext) && (req.headers['accept-encoding'] || '').includes('gzip')) {
+  var acceptGzip = textExts.includes(ext) && (req.headers['accept-encoding'] || '').includes('gzip');
+
+  if (acceptGzip && useSmallFile) {
+    // Fast path: read + gzip in memory (avoids stream overhead for 30+ concurrent requests)
+    try {
+      var raw = fs.readFileSync(realPath);
+      var compressed = zlib.gzipSync(raw, { level: 4 });
+      headers['Content-Encoding'] = 'gzip';
+      headers['Vary'] = 'Accept-Encoding';
+      res.writeHead(200, headers);
+      res.end(compressed);
+    } catch (err) {
+      if (!res.headersSent) res.writeHead(500);
+      res.end();
+    }
+  } else if (acceptGzip) {
+    // Stream path for large files (subject data files)
     headers['Content-Encoding'] = 'gzip';
     headers['Vary'] = 'Accept-Encoding';
     res.writeHead(200, headers);
     const gzip = zlib.createGzip({ level: 4 });
-    fs.createReadStream(realPath).pipe(gzip).pipe(res);
+    const stream = fs.createReadStream(realPath);
+    stream.on('error', function(err) {
+      if (!res.headersSent) res.writeHead(500);
+      res.end();
+    });
+    gzip.on('error', function(err) {
+      if (!res.headersSent) res.writeHead(500);
+      res.end();
+    });
+    stream.pipe(gzip).pipe(res);
+  } else if (useSmallFile) {
+    try {
+      var raw2 = fs.readFileSync(realPath);
+      res.writeHead(200, headers);
+      res.end(raw2);
+    } catch (err) {
+      if (!res.headersSent) res.writeHead(500);
+      res.end();
+    }
   } else {
     res.writeHead(200, headers);
-    fs.createReadStream(realPath).pipe(res);
+    const stream = fs.createReadStream(realPath);
+    stream.on('error', function(err) {
+      if (!res.headersSent) res.writeHead(500);
+      res.end();
+    });
+    stream.pipe(res);
   }
 });
 
@@ -716,6 +761,12 @@ staticServer.on('upgrade', function(req, socket, head) {
   }
   socket.destroy();
 });
+
+// Optimize for many concurrent static file requests (dev mode loads 50+ files)
+staticServer.keepAliveTimeout = 5000;
+staticServer.headersTimeout = 6000;
+staticServer.maxHeadersCount = 100;
+staticServer.timeout = 30000;
 
 staticServer.listen(PORT, () => {
   console.log(`MediCard → http://0.0.0.0:${PORT}  (PeerJS internal :${PEER_PORT}, proxy via /medicard)`);

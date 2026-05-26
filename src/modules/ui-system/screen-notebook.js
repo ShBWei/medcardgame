@@ -1,7 +1,7 @@
 /**
- * MediCard 医杀 — Wrong Question Notebook (错题本) V1.0
- * View mode: browse wrong questions grouped by subject
- * Self-test mode: quiz on wrong questions, auto-remove on correct answer
+ * MediCard 医杀 — Wrong Question Notebook (错题本) V2.0
+ * View mode: all questions grouped by subject, full detail visible inline.
+ * Self-test mode: quiz on wrong questions, auto-remove on correct answer.
  */
 (function() {
   var MediCard = window.MediCard || {};
@@ -15,13 +15,12 @@
     _testAnswered: 0,
     _testAnsweredIds: [], // correctly answered IDs for deferred removal
     _questionCache: null, // { qid: questionData } — prebuilt for fast lookup
-    _renderBatchSize: 20, // cards per animation frame
 
     show: function() {
       this._removeOverlay();
       var self = this;
       this._mode = 'view';
-      this._activeTab = 'wrong'; // 'wrong' | 'bookmark'
+      this._activeTab = 'wrong';
 
       var totalWrong = MediCard.WrongQuestionBook.getCount('wrong');
       var totalBookmark = MediCard.WrongQuestionBook.getCount('bookmark');
@@ -29,6 +28,9 @@
         this._showEmpty();
         return;
       }
+
+      // Preload cache from already-cached subjects so first render shows data
+      this._preloadCache();
 
       var overlay = document.createElement('div');
       overlay.className = 'modal-overlay ntb-overlay';
@@ -46,12 +48,15 @@
       overlay.addEventListener('click', function(e) { if (e.target === overlay) self.close(); });
       setTimeout(function() {
         self._attachEvents(content);
-        // Kick off async loading for uncached subjects
         self._ensureSubjectsLoaded();
       }, 50);
     },
 
-    /** Ensure all subjects with wrong/bookmarked questions are loaded, then prebuild cache. */
+    /**
+     * Progressive subject loading: preload cache from already-loaded subjects
+     * immediately, then use onSubjectReady per subject to fill in remaining data.
+     * No waiting for ALL subjects — each section updates as its data arrives.
+     */
     _ensureSubjectsLoaded: function() {
       var loader = MediCard.QuestionLoader;
       var WB = MediCard.WrongQuestionBook;
@@ -72,34 +77,36 @@
 
       var self = this;
       var subjectList = Object.keys(neededSubjects);
-      var loadedCount = 0;
 
-      // Kick off parallel subject loads
+      // Preload cache from subjects that are already in memory
+      this._preloadCache();
+
+      // Update sections for already-loaded subjects immediately
       for (var s = 0; s < subjectList.length; s++) {
-        if (loader._loadedSubjects && loader._loadedSubjects.has(subjectList[s])) {
-          loadedCount++;
-        } else {
-          loader.loadSubject(subjectList[s]);
+        var subj = subjectList[s];
+        if (loader._loadedSubjects.has(subj)) {
+          self._updateSubjectSection(subj);
         }
       }
 
-      var refresh = function() {
-        self._preloadCache();
-        self._refreshQuestionList();
-      };
-
-      // If all already cached, preload and refresh instantly
-      if (loadedCount === subjectList.length) {
-        refresh();
-      } else {
-        // Wait for loads to complete
-        loader.onReady(refresh);
+      // For not-yet-loaded subjects, kick off load + register per-subject callback
+      for (var s2 = 0; s2 < subjectList.length; s2++) {
+        var subj2 = subjectList[s2];
+        if (!loader._loadedSubjects.has(subj2)) {
+          loader.loadSubject(subj2);
+          (function(subjName) {
+            loader.onSubjectReady(subjName, function() {
+              self._preloadCache();
+              self._updateSubjectSection(subjName);
+            });
+          })(subj2);
+        }
       }
     },
 
     /**
      * Preload all question data for the current tab into _questionCache.
-     * Uses batch lookup (one scan per subject) for 10-50x speedup vs individual lookups.
+     * Uses batch lookup (one scan per subject) for speed.
      */
     _preloadCache: function() {
       var WB = MediCard.WrongQuestionBook;
@@ -109,23 +116,31 @@
       this._questionCache = WB.getQuestionDataBatch(allIds);
     },
 
-    /** Refresh the question list in-place after subjects load */
-    _refreshQuestionList: function() {
-      var qlist = document.getElementById('ntb-qlist');
-      if (!qlist) return;
-      var groups = MediCard.WrongQuestionBook.getBySubject(this._activeTab);
-      var subjects = Object.keys(groups).sort();
-      var firstSubj = subjects[0] || '';
-      qlist.innerHTML = this._renderQuestionList(firstSubj, groups[firstSubj] || []);
-      this._attachQuestionCards(qlist);
-      this._updateTabCounts();
+    /**
+     * Re-render one subject's section in-place after its data loads.
+     * Called by per-subject onSubjectReady callbacks.
+     */
+    _updateSubjectSection: function(subjName) {
+      var section = document.getElementById('ntb-sec-' + subjName);
+      if (!section) return;
+
+      var WB = MediCard.WrongQuestionBook;
+      var groups = WB.getBySubject(this._activeTab);
+      var ids = groups[subjName] || [];
+
+      // Rebuild the section from scratch
+      var newHTML = this._renderSubjectSection(subjName, ids);
+      var temp = document.createElement('div');
+      temp.innerHTML = newHTML;
+      var newSection = temp.firstChild;
+      if (newSection) {
+        section.parentNode.replaceChild(newSection, section);
+      }
     },
 
     _updateTabCounts: function() {
       var content = this._overlay ? this._overlay.querySelector('.ntb-modal') : null;
       if (!content) return;
-      var wrongGroups = MediCard.WrongQuestionBook.getBySubject('wrong');
-      var bookmarkGroups = MediCard.WrongQuestionBook.getBySubject('bookmark');
       var wrongTotal = MediCard.WrongQuestionBook.getCount('wrong');
       var bookmarkTotal = MediCard.WrongQuestionBook.getCount('bookmark');
 
@@ -133,20 +148,9 @@
       var bookmarkTab = content.querySelector('.ntb-tab-btn[data-tab="bookmark"]');
       if (wrongTab) wrongTab.innerHTML = '❌ 错题 <span class="ntb-tab-count">' + wrongTotal + '</span>';
       if (bookmarkTab) bookmarkTab.innerHTML = '⭐ 收藏 <span class="ntb-tab-count">' + bookmarkTotal + '</span>';
-
-      // Update subject tab counts
-      var tabCounts = this._activeTab === 'bookmark' ? bookmarkGroups : wrongGroups;
-      content.querySelectorAll('.ntb-subj-tab').forEach(function(tab) {
-        var subj = tab.getAttribute('data-subj');
-        var count = tabCounts[subj] ? tabCounts[subj].length : 0;
-        var countEl = tab.querySelector('.ntb-subj-count');
-        if (countEl) countEl.textContent = count;
-        tab.style.display = count > 0 ? '' : 'none';
-      });
     },
 
     close: function() {
-      // Apply deferred removals (correctly answered in test mode)
       if (this._testAnsweredIds.length > 0) {
         for (var i = 0; i < this._testAnsweredIds.length; i++) {
           MediCard.WrongQuestionBook.deleteEntry('wrong', this._testAnsweredIds[i]);
@@ -189,32 +193,26 @@
       }, 50);
     },
 
+    // ── HTML Rendering ──────────────────────────────────────────
+
     _renderHTML: function() {
       var self = this;
       var tab = this._activeTab || 'wrong';
       var groups = MediCard.WrongQuestionBook.getBySubject(tab);
-      var meta = MediCard.Config.subjectMeta || {};
       var totalWrong = MediCard.WrongQuestionBook.getCount('wrong');
       var totalBookmark = MediCard.WrongQuestionBook.getCount('bookmark');
-      var totalCount = tab === 'bookmark' ? totalBookmark : totalWrong;
 
       if (this._mode === 'test') return this._renderTestHTML();
 
-      // Build subject tabs
+      // Render ALL subject sections in one scrollable list
       var subjects = Object.keys(groups).sort();
-      var tabsHtml = '';
+      var allSectionsHtml = '';
       for (var s = 0; s < subjects.length; s++) {
-        var subj = subjects[s];
-        var m = meta[subj] || {};
-        tabsHtml += '<button class="ntb-subj-tab' + (s === 0 ? ' active' : '') + '" data-subj="' + _esc(subj) + '">' +
-          (m.icon || '📚') + ' <span class="ntb-subj-name">' + (m.name || subj) + '</span> ' +
-          '<span class="ntb-subj-count">' + groups[subj].length + '</span>' +
-          '</button>';
+        allSectionsHtml += this._renderSubjectSection(subjects[s], groups[subjects[s]] || []);
       }
-
-      // Build question list for first subject
-      var firstSubj = subjects[0] || '';
-      var questionListHtml = this._renderQuestionList(firstSubj, groups[firstSubj] || []);
+      if (!allSectionsHtml) {
+        allSectionsHtml = '<div class="ntb-empty-subj">暂无题目</div>';
+      }
 
       return '' +
         '<div class="ntb-header">' +
@@ -228,124 +226,88 @@
           '<button class="ntb-tab-btn' + (tab === 'wrong' ? ' active' : '') + '" data-tab="wrong">❌ 错题 <span class="ntb-tab-count">' + totalWrong + '</span></button>' +
           '<button class="ntb-tab-btn' + (tab === 'bookmark' ? ' active' : '') + '" data-tab="bookmark">⭐ 收藏 <span class="ntb-tab-count">' + totalBookmark + '</span></button>' +
         '</div>' +
-        '<div class="ntb-subj-tabs" id="ntb-tabs">' + tabsHtml + '</div>' +
-        '<div class="ntb-question-list" id="ntb-qlist">' + questionListHtml + '</div>';
+        '<div class="ntb-question-list" id="ntb-qlist">' + allSectionsHtml + '</div>';
     },
 
-    _renderQuestionList: function(subjName, ids) {
-      if (!ids || ids.length === 0) {
-        return '<div class="ntb-empty-subj">暂无题目</div>';
-      }
+    /**
+     * Render one subject section: sticky header + all question cards.
+     * Cards show loading placeholders if question data isn't cached yet.
+     */
+    _renderSubjectSection: function(subjName, ids) {
+      if (!ids || ids.length === 0) return '';
 
       var meta = MediCard.Config.subjectMeta || {};
       var m = meta[subjName] || {};
-      var isLoaded = MediCard.QuestionLoader && MediCard.QuestionLoader._loadedSubjects.has(subjName);
+      var loader = MediCard.QuestionLoader;
+      var isLoaded = loader && loader._loadedSubjects.has(subjName);
       var cache = this._questionCache;
 
-      var html = '<div class="ntb-subj-header">' +
+      var html = '<div class="ntb-subj-section" id="ntb-sec-' + _esc(subjName) + '">';
+      html += '<div class="ntb-subj-header">' +
         '<span class="ntb-subj-title">' + (m.icon || '📚') + ' ' + (m.name || subjName) + '</span>' +
         '<span class="ntb-subj-count">' + ids.length + '题</span>' +
         (isLoaded ? '' : ' <span class="ntb-loading-tag">加载中...</span>') +
         '</div>';
 
-      // Container for progressive rendering
-      html += '<div class="ntb-card-batch" id="ntb-cards-' + _esc(subjName) + '" data-subj="' + _esc(subjName) + '">';
-
-      if (cache && Object.keys(cache).length > 0) {
-        // Cache hit: render first batch immediately for instant feedback
-        var firstBatch = Math.min(this._renderBatchSize, ids.length);
-        for (var i = 0; i < firstBatch; i++) {
-          html += this._renderCardHTML(ids[i], i, subjName, cache[ids[i]] || null, isLoaded);
-        }
-        html += '</div>';
-
-        // Schedule remaining batches via requestAnimationFrame
-        if (ids.length > firstBatch) {
-          var cardsContainerId = 'ntb-cards-' + subjName;
-          var remainingIds = ids.slice(firstBatch);
-          var self = this;
-          setTimeout(function() {
-            self._renderCardBatch(cardsContainerId, remainingIds, firstBatch, subjName, isLoaded);
-          }, 0);
-        }
-      } else if (isLoaded) {
-        // Subjects loaded but cache miss — render all cards (small count typically)
-        for (var i2 = 0; i2 < ids.length; i2++) {
-          html += this._renderCardHTML(ids[i2], i2, subjName, null, isLoaded);
-        }
-        html += '</div>';
-      } else {
-        // Cache not ready + subjects not loaded — lightweight loading placeholder
-        // (heavy placeholder rendering was the main speed bottleneck)
-        html += '<div class="ntb-loading-placeholder">' +
-          '<span class="ntb-loading-dot"></span> 题目加载中，请稍候...' +
-          '</div></div>';
+      // Render every card immediately — with data if cached, placeholder if not
+      for (var i = 0; i < ids.length; i++) {
+        var q = cache ? cache[ids[i]] : null;
+        html += this._renderCardHTML(ids[i], i, subjName, q, isLoaded);
       }
-
+      html += '</div>';
       return html;
     },
 
     /**
-     * Progressive batch render: appends cards in chunks via requestAnimationFrame.
-     * Keeps the UI responsive while rendering hundreds of cards.
+     * Render a single question card. Detail (options, answer, knowledge point)
+     * is ALWAYS visible inline — no expand/collapse needed.
      */
-    _renderCardBatch: function(containerId, ids, startNum, subjName, isLoaded) {
-      var container = document.getElementById(containerId);
-      if (!container || !ids.length) return;
-
-      var self = this;
-      var cache = this._questionCache || {};
-      var batchSize = this._renderBatchSize;
-      var end = Math.min(batchSize, ids.length);
-      var html = '';
-
-      for (var i = 0; i < end; i++) {
-        var qid = ids[i];
-        html += self._renderCardHTML(qid, startNum + i, subjName, cache[qid] || null, isLoaded);
-      }
-      container.insertAdjacentHTML('beforeend', html);
-
-      // Schedule next batch
-      if (end < ids.length) {
-        var remaining = ids.slice(end);
-        (function(contId, remIds, startIdx) {
-          requestAnimationFrame(function() {
-            self._renderCardBatch(contId, remIds, startIdx, subjName, isLoaded);
-          });
-        })(containerId, remaining, startNum + end);
-      }
-    },
-
-    /** Build HTML for a single question card (used by batch renderer) */
     _renderCardHTML: function(qid, index, subjName, q, isLoaded) {
+      var meta = MediCard.Config.subjectMeta || {};
+      var m = meta[subjName] || {};
+      var shortSubj = m.name || subjName;
+      var chapter = q ? (q.chapter || '') : '';
+      var questionText = q ? (q.question || q.q || '') : (isLoaded ? '(题目未找到)' : '加载中...');
+      var multiBadge = this._multiSelectBadge(q);
+
       var html = '<div class="ntb-q-card" data-qid="' + _esc(qid) + '" data-subj="' + _esc(subjName) + '">';
+
+      // Header row: number + question text (left), badges (right)
       html += '<div class="ntb-q-header">';
       html += '<span class="ntb-q-num">#' + (index + 1) + '</span>';
-      html += '<span class="ntb-q-text">' + _esc(q ? (q.question || q.q || '') : (isLoaded ? '(题目未找到)' : '加载中...')) + '</span>' + this._multiSelectBadge(q);
-      html += '<span class="ntb-q-toggle">▼</span>';
+      html += '<span class="ntb-q-text">' + _esc(questionText) + '</span>' + multiBadge;
+      html += '<span class="ntb-q-badges">';
+      if (shortSubj) {
+        html += '<span class="ntb-q-subj-badge">' + (m.icon || '📚') + ' ' + _esc(shortSubj) + '</span>';
+      }
+      if (chapter) {
+        html += '<span class="ntb-q-ch-badge">' + _esc(chapter) + '</span>';
+      }
+      html += '</span>';
       html += '</div>';
-      html += '<div class="ntb-q-detail" style="display:none;">';
+
+      // Detail: always visible (options + correct answer + knowledge point)
+      html += '<div class="ntb-q-detail">';
       if (q) {
         html += this._renderQuestionDetail(q);
       } else if (isLoaded) {
         html += '<div class="ntb-detail-placeholder">该题目数据暂不可用</div>';
       } else {
-        html += '<div class="ntb-detail-placeholder ntb-loading">题目加载中，请稍候... <span class="ntb-loading-dot"></span></div>';
+        html += '<div class="ntb-detail-placeholder ntb-loading"><span class="ntb-loading-dot"></span> 题目加载中，请稍候...</div>';
       }
       html += '<button class="btn btn-ghost btn-sm ntb-delete-btn" data-qid="' + _esc(qid) + '">🗑 移除此题</button>';
       html += '</div>';
+
       html += '</div>';
       return html;
     },
 
-    /** Check if a question requires multiple answers */
+    // ── Question detail helpers ─────────────────────────────────
+
     _isMultiSelect: function(q) {
       if (!q) return false;
-      // Primary marker: questionType field (same as study module)
       if (q.questionType === 'multiple') return true;
-      // Secondary markers
       if (q.multiSelect === true || q.type === 'multi-select') return true;
-      // Fallback: count distinct correct answers
       var correct = q.correctAnswers || q.ans || [];
       var labels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
       var seen = {};
@@ -358,12 +320,10 @@
       return count > 1;
     },
 
-    /** Build multi-select indicator badge */
     _multiSelectBadge: function(q) {
       return this._isMultiSelect(q) ? ' <span class="ntb-multi-badge">多选</span>' : '';
     },
 
-    /** Render the expanded detail section for a single question */
     _renderQuestionDetail: function(q) {
       var html = '';
       if (this._isMultiSelect(q)) {
@@ -401,6 +361,8 @@
       return html;
     },
 
+    // ── Test mode ───────────────────────────────────────────────
+
     _renderTestHTML: function() {
       return '' +
         '<div class="ntb-header">' +
@@ -429,14 +391,12 @@
       this._testAnswered = 0;
       this._testAnsweredIds = [];
       var allIds = MediCard.WrongQuestionBook.getAll('wrong');
-      // Shuffle IDs
       for (var i = allIds.length - 1; i > 0; i--) {
         var j = Math.floor(Math.random() * (i + 1));
         var tmp = allIds[i]; allIds[i] = allIds[j]; allIds[j] = tmp;
       }
       this._testQuestions = allIds;
 
-      // Preload all test question data into cache (batch lookup for speed)
       var WB = MediCard.WrongQuestionBook;
       if (WB && WB.getQuestionDataBatch) {
         this._questionCache = WB.getQuestionDataBatch(allIds);
@@ -457,7 +417,6 @@
       var area = document.getElementById('ntb-test-area');
       if (!area) return;
 
-      // Update progress
       var progressPct = Math.round(this._testAnswered / this._testQuestions.length * 100);
       var fill = document.getElementById('ntb-progress-fill');
       var text = document.getElementById('ntb-progress-text');
@@ -466,21 +425,21 @@
 
       var self = this;
 
-      // Fast path: preloaded cache (instant)
+      // Fast path: preloaded cache
       var q = this._questionCache && this._questionCache[qid];
       if (q) {
         this._renderTestQuestion(q, qid, area);
         return;
       }
 
-      // Try O(1) lookup
+      // O(1) lookup
       q = MediCard.WrongQuestionBook.getQuestionData(qid);
       if (q) {
         this._renderTestQuestion(q, qid, area);
         return;
       }
 
-      // Not in cache — async fallback
+      // Async fallback
       var loader = MediCard.QuestionLoader;
       if (loader && loader.findQuestionById) {
         area.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">加载题目中...</div>';
@@ -495,13 +454,10 @@
         return;
       }
 
-      // Fallback — skip
       this._testIndex++;
       this._showNextTestQuestion();
     },
 
-    /** Render a test question into the test area.
-     *  Supports both single-select and multi-select questions. */
     _renderTestQuestion: function(q, qid, area) {
       var self = this;
       var opts = q.options || q.opts || [];
@@ -509,7 +465,6 @@
       var isMulti = this._isMultiSelect(q);
       var labels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
-      // Build correct set for validation
       var correctSet = {};
       for (var ci = 0; ci < correct.length; ci++) {
         var ck = correct[ci];
@@ -548,7 +503,6 @@
           '<button class="btn btn-primary" id="ntb-test-next" style="display:none;margin-top:12px;width:100%;">下一题 →</button>' +
         '</div>';
 
-      // Attach option click handlers
       var optBtns = area.querySelectorAll('.ntb-test-opt-btn');
       for (var oi2 = 0; oi2 < optBtns.length; oi2++) {
         (function(btn, oi) {
@@ -562,7 +516,6 @@
         })(optBtns[oi2], oi2);
       }
 
-      // Multi-select submit button
       if (isMulti) {
         var submitBtnEl = document.getElementById('ntb-test-submit');
         if (submitBtnEl) {
@@ -582,10 +535,6 @@
       }
     },
 
-    /**
-     * Toggle a multi-select option on/off. Updates button visual state
-     * and the _testSelectedOptions array.
-     */
     _toggleMultiOption: function(btn, oi) {
       var idx = this._testSelectedOptions.indexOf(oi);
       if (idx >= 0) {
@@ -602,19 +551,16 @@
       var isMulti = this._testCurrentIsMulti;
       var labels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
-      // Determine correctness
       var isCorrect;
       if (isMulti) {
         var selectedSet = {};
         for (var si = 0; si < selectedOis.length; si++) {
           selectedSet[labels[selectedOis[si]]] = true;
         }
-        // All correct must be selected
         var allCorrectSelected = true;
         for (var ck in correctSet) {
           if (!selectedSet[ck]) { allCorrectSelected = false; break; }
         }
-        // No extra (wrong) selections
         var noExtraSelected = true;
         for (var sl in selectedSet) {
           if (!correctSet[sl]) { noExtraSelected = false; break; }
@@ -625,7 +571,6 @@
         isCorrect = correctSet[so] || correctSet[String(so)] || correctSet[labels[so]];
       }
 
-      // Disable all option buttons and highlight correct/wrong
       var optBtns = document.querySelectorAll('#ntb-test-options .ntb-test-opt-btn');
       for (var i = 0; i < optBtns.length; i++) {
         optBtns[i].disabled = true;
@@ -641,7 +586,6 @@
         }
       }
 
-      // Hide submit button
       var submitBtn = document.getElementById('ntb-test-submit');
       if (submitBtn) submitBtn.style.display = 'none';
 
@@ -685,7 +629,6 @@
       var correct = this._testCorrect;
       var pct = total > 0 ? Math.round(correct / total * 100) : 0;
 
-      // Apply deferred removals for correctly answered questions
       if (this._testAnsweredIds.length > 0) {
         for (var i = 0; i < this._testAnsweredIds.length; i++) {
           MediCard.WrongQuestionBook.deleteEntry('wrong', this._testAnsweredIds[i]);
@@ -731,6 +674,8 @@
       }
     },
 
+    // ── Event handling ──────────────────────────────────────────
+
     _attachEvents: function(content) {
       var self = this;
 
@@ -740,43 +685,20 @@
           var tab = this.getAttribute('data-tab');
           if (tab === self._activeTab) return;
           self._activeTab = tab;
-          // Re-render
           content.innerHTML = self._renderHTML();
           self._attachEvents(content);
           self._ensureSubjectsLoaded();
         });
       });
 
-      // Subject tab switching
-      content.querySelectorAll('.ntb-subj-tab').forEach(function(tab) {
-        tab.addEventListener('click', function() {
-          var subj = this.getAttribute('data-subj');
-          // Update active tab
-          content.querySelectorAll('.ntb-subj-tab').forEach(function(t) { t.classList.remove('active'); });
-          this.classList.add('active');
-          // Update question list
-          var groups = MediCard.WrongQuestionBook.getBySubject(self._activeTab);
-          var qlist = document.getElementById('ntb-qlist');
-          if (qlist) {
-            qlist.innerHTML = self._renderQuestionList(subj, groups[subj] || []);
-            self._attachQuestionCards(qlist);
-          }
-        });
-      });
-
-      // Question card expand/collapse
-      this._attachQuestionCards(content);
-
-      // Mode toggle
+      // Mode toggle (view ↔ test)
       var modeBtn = document.getElementById('ntb-mode-toggle');
       if (modeBtn) {
         modeBtn.addEventListener('click', function() {
           if (self._mode === 'view') {
-            // Only test on wrong questions (not bookmarks)
             var testIds = MediCard.WrongQuestionBook.getAll('wrong');
             if (testIds.length === 0) return;
             self._mode = 'test';
-            // Shuffle
             for (var i = testIds.length - 1; i > 0; i--) {
               var j = Math.floor(Math.random() * (i + 1));
               var tmp = testIds[i]; testIds[i] = testIds[j]; testIds[j] = tmp;
@@ -789,7 +711,6 @@
             content.innerHTML = self._renderHTML();
             self._attachEvents(content);
           } else {
-            // Apply deferred removals before switching back to view
             if (self._testAnsweredIds.length > 0) {
               for (var r = 0; r < self._testAnsweredIds.length; r++) {
                 MediCard.WrongQuestionBook.deleteEntry('wrong', self._testAnsweredIds[r]);
@@ -804,7 +725,7 @@
         });
       }
 
-      // Close
+      // Close button
       var closeBtn = document.getElementById('ntb-close');
       if (closeBtn) closeBtn.addEventListener('click', function() { self.close(); });
 
@@ -813,77 +734,57 @@
       if (startBtn) {
         startBtn.addEventListener('click', function() { self._startTest(); });
       }
-    },
 
-    /**
-     * Use event delegation for question card interactions.
-     * One listener on the container handles all dynamically-added cards
-     * (including progressively rendered batches).
-     */
-    _attachQuestionCards: function(container) {
-      var self = this;
-      // Remove old delegated listener if re-attaching
-      if (container._ntbDelegated) return;
-      container._ntbDelegated = true;
-
-      container.addEventListener('click', function(e) {
-        // Expand/collapse card on header click
-        var header = e.target.closest('.ntb-q-header');
-        if (header) {
-          var card = header.closest('.ntb-q-card');
-          if (card) {
-            var detail = card.querySelector('.ntb-q-detail');
-            var toggle = card.querySelector('.ntb-q-toggle');
-            if (detail && detail.style.display === 'none') {
-              detail.style.display = 'block';
-              if (toggle) toggle.textContent = '▲';
-            } else if (detail) {
-              detail.style.display = 'none';
-              if (toggle) toggle.textContent = '▼';
-            }
-          }
-          return;
-        }
-
-        // Delete button
-        var delBtn = e.target.closest('.ntb-delete-btn');
-        if (delBtn) {
+      // Delegated delete handler — one listener on qlist catches all card deletes
+      var qlist = document.getElementById('ntb-qlist');
+      if (qlist && !qlist._ntbDelegated) {
+        qlist._ntbDelegated = true;
+        qlist.addEventListener('click', function(e) {
+          var delBtn = e.target.closest('.ntb-delete-btn');
+          if (!delBtn) return;
           e.stopPropagation();
+
           var qid = delBtn.getAttribute('data-qid');
           var tab = self._activeTab || 'wrong';
           MediCard.WrongQuestionBook.deleteEntry(tab, qid);
+
+          // Remove card from DOM
           var card = delBtn.closest('.ntb-q-card');
-          if (card) card.remove();
+          if (card) {
+            var section = card.closest('.ntb-subj-section');
+            card.remove();
+
+            // Update subject section count in header
+            if (section) {
+              var remainingCards = section.querySelectorAll('.ntb-q-card').length;
+              var countEl = section.querySelector('.ntb-subj-count');
+              if (countEl) countEl.textContent = remainingCards + '题';
+
+              // Remove entire section if empty
+              if (remainingCards === 0) {
+                section.remove();
+              }
+            }
+          }
+
           self._updateTabCounts();
+
+          // If no entries left, close or switch tabs
           var remaining = MediCard.WrongQuestionBook.getCount(tab);
           if (remaining === 0) {
             var otherTab = tab === 'wrong' ? 'bookmark' : 'wrong';
-            var content = self._overlay ? self._overlay.querySelector('.ntb-modal') : null;
-            if (content && MediCard.WrongQuestionBook.getCount(otherTab) > 0) {
+            var modal = self._overlay ? self._overlay.querySelector('.ntb-modal') : null;
+            if (modal && MediCard.WrongQuestionBook.getCount(otherTab) > 0) {
               self._activeTab = otherTab;
-              content.innerHTML = self._renderHTML();
-              // Reset delegation flag so it gets re-bound
-              var newContent = self._overlay.querySelector('.ntb-modal');
-              if (newContent) newContent._ntbDelegated = false;
-              self._attachEvents(content);
+              modal.innerHTML = self._renderHTML();
+              self._attachEvents(modal);
               self._ensureSubjectsLoaded();
             } else {
               self.close();
             }
           }
-        }
-      });
-    },
-
-    _refreshTabCounts: function(content) {
-      var groups = MediCard.WrongQuestionBook.getBySubject('wrong');
-      content.querySelectorAll('.ntb-subj-tab').forEach(function(tab) {
-        var subj = tab.getAttribute('data-subj');
-        var count = groups[subj] ? groups[subj].length : 0;
-        var countEl = tab.querySelector('.ntb-subj-count');
-        if (countEl) countEl.textContent = count;
-        if (count === 0) tab.style.opacity = '0.4';
-      });
+        });
+      }
     }
   };
 
@@ -892,7 +793,6 @@
     if (MediCard.Crypto && MediCard.Crypto.escapeHtml) {
       return MediCard.Crypto.escapeHtml(str);
     }
-    // Fallback: basic HTML escaping
     var s = String(str == null ? '' : str);
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
@@ -900,7 +800,6 @@
   // Expose global accessor for title screen / study module buttons
   window._medicardOpenNotebook = function() {
     if (MediCard.QuestionLoader) {
-      // Preload ALL subjects that have wrong OR bookmarked questions
       var wrongIds = MediCard.WrongQuestionBook.getAll('wrong');
       var bookmarkIds = MediCard.WrongQuestionBook.getAll('bookmark');
       var allIds = wrongIds.concat(bookmarkIds);
@@ -917,5 +816,5 @@
     MediCard.ScreenNotebook.show();
   };
 
-  console.log('[Notebook] Wrong question notebook module loaded');
+  console.log('[Notebook] Wrong question notebook V2.0 module loaded');
 })();

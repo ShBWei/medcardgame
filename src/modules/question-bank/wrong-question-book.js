@@ -63,57 +63,100 @@
       return 'medicard_' + type + '_' + (uid || 'anon');
     },
 
-    /** Get subject from question ID (handles multiple formats) */
+    /** In-memory cache for _loadLocal — avoids repeated localStorage reads within session */
+    _memCache: {},
+
+    /** Invalidate memory cache for a given type */
+    _invalidateCache: function(type) {
+      delete this._memCache['load_' + type];
+    },
+
+    /** Get subject from question ID (handles multiple formats including composite card IDs) */
     _subjectFromId: function(qid) {
       if (!qid) return 'unknown';
-      // Encoded format: "7:42"
-      var colonIdx = qid.indexOf(':');
-      if (colonIdx >= 0) {
-        this._buildMaps();
-        var code = parseInt(qid.substring(0, colonIdx), 10);
-        if (!isNaN(code) && this._codeSubjMap[code]) return this._codeSubjMap[code];
+      var decoded = this._decodeId(qid);
+
+      // 1. Encoded format check (decode may reveal subject prefix like "microbiology_042")
+      if (decoded !== qid) {
+        var subj = this._subjectFromPlainId(decoded);
+        if (subj !== 'unknown') return subj;
       }
-      // Strip card-type prefix: "atk_0_physiology-comm-001" → "physiology-comm-001"
-      var clean = qid.replace(/^(tac|equ|dly|atk|def|heal|jsh|jdo)_\d+_/, '');
-      // Known subject IDs to try matching as prefix of the ID
-      var knownSubjects = [
-        'cell-biology', 'biochemistry', 'physiology', 'pathology',
-        'histology-embryology', 'systematic-anatomy', 'immunology', 'microbiology'
-      ];
-      for (var i = 0; i < knownSubjects.length; i++) {
-        var s = knownSubjects[i];
-        // Check if clean ID starts with subject or matches subject-related prefix
-        if (clean.indexOf(s) === 0) return s;
-        // Check micro→microbiology mapping
-        if (s === 'microbiology' && clean.indexOf('micro') === 0) return s;
-        // Check sys-anat→systematic-anatomy mapping
-        if (s === 'systematic-anatomy' && clean.indexOf('sys-anat') === 0) return s;
+
+      // 2. Handle composite card IDs: tac_<subtype>_<qid>, equ_<subtype>_<qid>, etc.
+      // Strip prefix patterns to extract the real question ID
+      var prefixMatch = decoded.match(/^(tac|equ|dly|atk|def|heal|jsh|jdo)_[^_]+_(.+)$/);
+      if (prefixMatch) {
+        var innerQid = prefixMatch[2];
+        var innerSubj = this._subjectFromPlainId(innerQid);
+        if (innerSubj !== 'unknown') return innerSubj;
       }
-      // Fallback: try underscore split (old format: "microbiology_042")
-      var idx = qid.lastIndexOf('_');
-      if (idx >= 0) {
-        var subj = qid.substring(0, idx);
-        if (!/^(tac|equ|dly|atk|def|heal|jsh|jdo)(_\d+)?$/.test(subj)) return subj;
+
+      // 3. Try plain ID lookup
+      return this._subjectFromPlainId(decoded);
+    },
+
+    /** Subject lookup for a plain (non-composite) question ID */
+    _subjectFromPlainId: function(qid) {
+      // Prefix → subject mapping (longest first to avoid partial matches)
+      var prefixMap = {
+        'histology-embryology': 'histology-embryology',
+        'systematic-anatomy': 'systematic-anatomy',
+        'cell-biology': 'cell-biology',
+        'biochemistry': 'biochemistry',
+        'physiology': 'physiology',
+        'pathology': 'pathology',
+        'immunology': 'immunology',
+        'microbiology': 'microbiology',
+        'histol': 'histology-embryology',
+        'sys-anat': 'systematic-anatomy',
+        'cell-bio': 'cell-biology',
+        'bioche': 'biochemistry',
+        'immuno': 'immunology',
+        'micro': 'microbiology'
+      };
+      var prefixes = Object.keys(prefixMap).sort(function(a, b) { return b.length - a.length; });
+      for (var i = 0; i < prefixes.length; i++) {
+        if (qid.indexOf(prefixes[i]) === 0) return prefixMap[prefixes[i]];
       }
       return 'unknown';
     },
 
-    /** Load ID array from localStorage — decode on read */
+    /** Load ID array from localStorage — decode on read, with in-memory cache */
     _loadLocal: function(type) {
+      var cacheKey = 'load_' + type;
+      if (this._memCache[cacheKey]) return this._memCache[cacheKey];
       try {
         var raw = localStorage.getItem(this._getKey(type));
-        if (!raw) return [];
+        if (!raw) { this._memCache[cacheKey] = []; return []; }
         var ids = JSON.parse(raw);
         var decoded = [];
+        // Filter out known-broken IDs (card-type prefixes without question ID)
         for (var i = 0; i < ids.length; i++) {
-          decoded.push(this._decodeId(ids[i]));
+          var d = this._decodeId(ids[i]);
+          if (this._isValidQid(d)) decoded.push(d);
         }
+        this._memCache[cacheKey] = decoded;
         return decoded;
       } catch(e) { return []; }
     },
 
-    /** Save ID array to localStorage — encode on write */
+    /** Check if a decoded ID belongs to a known subject (prefix match). */
+    _isValidQid: function(qid) {
+      if (!qid || typeof qid !== 'string') return false;
+      var knownPrefixes = [
+        'histology-embryology', 'systematic-anatomy', 'cell-biology', 'biochemistry',
+        'physiology', 'pathology', 'immunology', 'microbiology',
+        'histol', 'sys-anat', 'cell-bio', 'bioche', 'immuno', 'micro'
+      ];
+      for (var i = 0; i < knownPrefixes.length; i++) {
+        if (qid.indexOf(knownPrefixes[i]) === 0) return true;
+      }
+      return false;
+    },
+
+    /** Save ID array to localStorage — encode on write, invalidate cache */
     _saveLocal: function(type, ids) {
+      this._invalidateCache(type);
       try {
         if (ids.length > this._maxEntries) ids = ids.slice(-this._maxEntries);
         var encoded = [];
@@ -237,15 +280,14 @@
       return merged;
     },
 
-    /** Parse question ID like "microbiology_042" → { subject, index } */
+    /** Parse question ID like "micro-lege-001" or "cell-bio-common-001" → { subject, index } */
     _parseQid: function(qid) {
       var decoded = this._decodeId(qid);
-      var idx = decoded.lastIndexOf('_');
-      if (idx < 0) return null;
-      var subject = decoded.substring(0, idx);
-      var num = parseInt(decoded.substring(idx + 1), 10);
-      if (isNaN(num)) return null;
-      return { subject: subject, index: num };
+      var subject = this._subjectFromPlainId(decoded);
+      if (subject === 'unknown') return null;
+      var match = decoded.match(/[-_](\d+)$/);
+      if (!match) return null;
+      return { subject: subject, index: parseInt(match[1], 10) };
     },
 
     /** Add a question ID to the list (wrong or bookmark) */

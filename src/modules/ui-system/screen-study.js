@@ -101,7 +101,7 @@
             '</div>' +
             '<div class="study-header-right">' +
               '<button class="study-header-btn" id="study-theme-btn" title="切换主题">🎨</button>' +
-              (wrongCount > 0 ? '<button class="study-header-btn" id="study-wrong-btn" title="错题本(' + wrongCount + '题)">📝</button>' : '') +
+              '<button class="study-header-btn" id="study-wrong-btn" title="错题本' + (wrongCount > 0 ? '(' + wrongCount + '题)' : '') + '">📝</button>' +
             '</div>' +
           '</div>' +
           '<div class="study-mode-tabs" id="study-mode-tabs">' +

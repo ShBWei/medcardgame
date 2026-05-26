@@ -219,7 +219,8 @@ function build() {
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f172a">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self';">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws: wss:; base-uri 'self'; form-action 'self';">
 <title>MediCard 医杀</title>
 <style>
 ${css}
@@ -243,6 +244,13 @@ ${css}
     }
   }
   console.log('  Config: _headers + _redirects + _routes.json copied');
+
+  // 7. Copy favicon
+  const faviconSrc = path.join(ROOT, 'favicon.svg');
+  if (fs.existsSync(faviconSrc)) {
+    fs.copyFileSync(faviconSrc, path.join(DIST, 'favicon.svg'));
+    console.log('  Favicon: favicon.svg copied');
+  }
 
   console.log('\n✅ Build complete → dist/');
   console.log('   Deploy: dist/ directory to Cloudflare Pages');
