@@ -15,6 +15,8 @@
     _testAnswered: 0,
     _testAnsweredIds: [], // correctly answered IDs for deferred removal
     _questionCache: null, // { qid: questionData } — prebuilt for fast lookup
+    _collapsedSubjects: {},  // subjName → true if collapsed in browse mode
+    _testSubjectFilter: null, // null=show picker, []=skip picker, ['subj',...]=filtered
 
     show: function() {
       this._removeOverlay();
@@ -157,6 +159,8 @@
         }
         this._testAnsweredIds = [];
       }
+      this._testSubjectFilter = null;
+      this._collapsedSubjects = {};
       this._removeOverlay();
     },
 
@@ -218,6 +222,7 @@
         '<div class="ntb-header">' +
           '<h3 style="margin:0;font-size:clamp(17px,4.5vw,20px);">📝 错题本</h3>' +
           '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+            '<button class="btn btn-sm btn-ghost" id="ntb-collapse-all" style="font-size:12px;min-height:40px;">📂 全部收起</button>' +
             '<button class="btn btn-sm" id="ntb-mode-toggle" style="background:#fbbf24;color:#000;min-height:40px;">🧪 自测</button>' +
             '<button class="btn btn-ghost btn-sm" id="ntb-close" style="min-height:40px;min-width:40px;">✕</button>' +
           '</div>' +
@@ -230,7 +235,7 @@
     },
 
     /**
-     * Render one subject section: sticky header + all question cards.
+     * Render one subject section: sticky collapsible header + all question cards.
      * Cards show loading placeholders if question data isn't cached yet.
      */
     _renderSubjectSection: function(subjName, ids) {
@@ -241,19 +246,24 @@
       var loader = MediCard.QuestionLoader;
       var isLoaded = loader && loader._loadedSubjects.has(subjName);
       var cache = this._questionCache;
+      var collapsed = this._collapsedSubjects[subjName] === true;
+      var arrow = collapsed ? '▶' : '▼';
 
       var html = '<div class="ntb-subj-section" id="ntb-sec-' + _esc(subjName) + '">';
-      html += '<div class="ntb-subj-header">' +
+      html += '<div class="ntb-subj-header ntb-collapse-toggle" data-subj="' + _esc(subjName) + '">' +
+        '<span class="ntb-subj-arrow">' + arrow + '</span>' +
         '<span class="ntb-subj-title">' + (m.icon || '📚') + ' ' + (m.name || subjName) + '</span>' +
         '<span class="ntb-subj-count">' + ids.length + '题</span>' +
         (isLoaded ? '' : ' <span class="ntb-loading-tag">加载中...</span>') +
         '</div>';
 
+      html += '<div class="ntb-subj-body' + (collapsed ? ' ntb-collapsed' : '') + '" data-subj-body="' + _esc(subjName) + '">';
       // Render every card immediately — with data if cached, placeholder if not
       for (var i = 0; i < ids.length; i++) {
         var q = cache ? cache[ids[i]] : null;
         html += this._renderCardHTML(ids[i], i, subjName, q, isLoaded);
       }
+      html += '</div>';
       html += '</div>';
       return html;
     },
@@ -364,10 +374,77 @@
     // ── Test mode ───────────────────────────────────────────────
 
     _renderTestHTML: function() {
+      // If filter not set and multiple subjects have wrong questions, show picker
+      if (this._testSubjectFilter === null) {
+        var groups = MediCard.WrongQuestionBook.getBySubject('wrong');
+        var subjects = Object.keys(groups).sort();
+        if (subjects.length > 1) {
+          return this._renderTestSubjectPicker(subjects, groups);
+        }
+        // Single subject or empty — auto-select and proceed
+        this._testSubjectFilter = subjects.length === 1 ? subjects.slice() : [];
+      }
+      return this._renderTestStartHTML();
+    },
+
+    /** Render subject picker for test mode — user selects which subjects to include */
+    _renderTestSubjectPicker: function(subjects, groups) {
+      var meta = MediCard.Config.subjectMeta || {};
+      var html = '' +
+        '<div class="ntb-header">' +
+          '<h3>🧪 错题自测 — 选择科目</h3>' +
+          '<div style="display:flex;gap:8px;">' +
+            '<button class="btn btn-sm" id="ntb-mode-toggle" style="background:var(--bg-tertiary);">📖 浏览模式</button>' +
+            '<button class="btn btn-ghost btn-sm" id="ntb-close">✕</button>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;margin-bottom:12px;">' +
+          '<button class="btn btn-sm" id="ntb-picker-all" style="flex:1;">✅ 全选</button>' +
+          '<button class="btn btn-sm btn-ghost" id="ntb-picker-none" style="flex:1;">清除</button>' +
+        '</div>' +
+        '<div class="ntb-picker-list">';
+
+      for (var s = 0; s < subjects.length; s++) {
+        var subj = subjects[s];
+        var m = meta[subj] || {};
+        var count = groups[subj] ? groups[subj].length : 0;
+        html += '<label class="ntb-picker-item">' +
+          '<input type="checkbox" class="ntb-picker-cb" data-subj="' + _esc(subj) + '" checked>' +
+          '<span class="ntb-picker-label">' + (m.icon || '📚') + ' ' + (m.name || subj) + '</span>' +
+          '<span class="ntb-picker-count">' + count + '题</span>' +
+          '</label>';
+      }
+
+      html += '</div>' +
+        '<button class="btn btn-primary btn-lg" id="ntb-start-picker" style="width:100%;margin-top:16px;min-height:48px;">' +
+          '🧪 开始自测' +
+        '</button>';
+      return html;
+    },
+
+    /** Render the "ready to start" screen (after subject filter is set) */
+    _renderTestStartHTML: function() {
+      // Compute filtered count for display
+      var filteredCount = this._testQuestions.length;
+      if (this._testSubjectFilter && this._testSubjectFilter.length > 0) {
+        var allIds = MediCard.WrongQuestionBook.getAll('wrong');
+        var WB = MediCard.WrongQuestionBook;
+        filteredCount = 0;
+        for (var i = 0; i < allIds.length; i++) {
+          if (this._testSubjectFilter.indexOf(WB._subjectFromId(allIds[i])) >= 0) filteredCount++;
+        }
+      }
+
+      var filterBtn = '';
+      if (this._testSubjectFilter && this._testSubjectFilter.length > 0) {
+        filterBtn = '<button class="btn btn-sm btn-ghost" id="ntb-reselect-subjects" style="font-size:12px;">📋 重新选择科目</button>';
+      }
+
       return '' +
         '<div class="ntb-header">' +
           '<h3>🧪 错题自测</h3>' +
-          '<div style="display:flex;gap:8px;">' +
+          '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+            filterBtn +
             '<button class="btn btn-sm" id="ntb-mode-toggle" style="background:var(--bg-tertiary);">📖 浏览模式</button>' +
             '<button class="btn btn-ghost btn-sm" id="ntb-close">✕</button>' +
           '</div>' +
@@ -378,7 +455,7 @@
         '</div>' +
         '<div class="ntb-test-area" id="ntb-test-area">' +
           '<div style="text-align:center;padding:40px;">' +
-            '<p style="color:var(--text-secondary);margin-bottom:16px;">共 <b>' + this._testQuestions.length + '</b> 道错题等待复习</p>' +
+            '<p style="color:var(--text-secondary);margin-bottom:16px;">共 <b>' + filteredCount + '</b> 道错题等待复习</p>' +
             '<p style="color:var(--text-muted);font-size:12px;margin-bottom:24px;">答对自动移出错题本 · 答错继续保留</p>' +
             '<button class="btn btn-primary btn-lg" id="ntb-start-test">🧪 开始自测</button>' +
           '</div>' +
@@ -391,6 +468,28 @@
       this._testAnswered = 0;
       this._testAnsweredIds = [];
       var allIds = MediCard.WrongQuestionBook.getAll('wrong');
+
+      // Filter by selected subjects if a filter is active
+      var filter = this._testSubjectFilter;
+      if (filter && filter.length > 0) {
+        var WB = MediCard.WrongQuestionBook;
+        var filtered = [];
+        for (var fi = 0; fi < allIds.length; fi++) {
+          var subj = WB._subjectFromId(allIds[fi]);
+          if (filter.indexOf(subj) >= 0) filtered.push(allIds[fi]);
+        }
+        allIds = filtered;
+      }
+
+      if (allIds.length === 0) {
+        var area = document.getElementById('ntb-test-area');
+        if (area) {
+          area.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">' +
+            '所选科目暂无错题</div>';
+        }
+        return;
+      }
+
       for (var i = allIds.length - 1; i > 0; i--) {
         var j = Math.floor(Math.random() * (i + 1));
         var tmp = allIds[i]; allIds[i] = allIds[j]; allIds[j] = tmp;
@@ -661,6 +760,8 @@
       if (backBtn) {
         backBtn.addEventListener('click', function() {
           self._mode = 'view';
+          self._testSubjectFilter = null;
+          self._collapsedSubjects = {};
           if (remaining === 0) {
             self.close();
             return;
@@ -669,6 +770,7 @@
           if (content) {
             content.innerHTML = self._renderHTML();
             self._attachEvents(content);
+            self._ensureSubjectsLoaded();
           }
         });
       }
@@ -699,6 +801,7 @@
             var testIds = MediCard.WrongQuestionBook.getAll('wrong');
             if (testIds.length === 0) return;
             self._mode = 'test';
+            self._testSubjectFilter = null; // reset — will show picker if multiple subjects
             for (var i = testIds.length - 1; i > 0; i--) {
               var j = Math.floor(Math.random() * (i + 1));
               var tmp = testIds[i]; testIds[i] = testIds[j]; testIds[j] = tmp;
@@ -718,6 +821,8 @@
               self._testAnsweredIds = [];
             }
             self._mode = 'view';
+            self._testSubjectFilter = null;
+            self._collapsedSubjects = {};
             content.innerHTML = self._renderHTML();
             self._attachEvents(content);
             self._ensureSubjectsLoaded();
@@ -728,6 +833,114 @@
       // Close button
       var closeBtn = document.getElementById('ntb-close');
       if (closeBtn) closeBtn.addEventListener('click', function() { self.close(); });
+
+      // ── Collapse/expand subject sections ──
+      // Delegated click on subject headers (browse mode)
+      var qlistEl = document.getElementById('ntb-qlist');
+      if (qlistEl && !qlistEl._ntbCollapse) {
+        qlistEl._ntbCollapse = true;
+        qlistEl.addEventListener('click', function(e) {
+          var toggle = e.target.closest('.ntb-collapse-toggle');
+          if (!toggle) return;
+          var subj = toggle.getAttribute('data-subj');
+          var body = qlistEl.querySelector('[data-subj-body="' + subj + '"]');
+          var arrow = toggle.querySelector('.ntb-subj-arrow');
+          if (!body) return;
+          if (self._collapsedSubjects[subj]) {
+            delete self._collapsedSubjects[subj];
+            body.classList.remove('ntb-collapsed');
+            if (arrow) arrow.textContent = '▼';
+          } else {
+            self._collapsedSubjects[subj] = true;
+            body.classList.add('ntb-collapsed');
+            if (arrow) arrow.textContent = '▶';
+          }
+          // Update global toggle button text
+          var collapseAllBtn = document.getElementById('ntb-collapse-all');
+          if (collapseAllBtn) {
+            var allSubjects = qlistEl.querySelectorAll('.ntb-subj-section');
+            var allCollapsed = true;
+            var allExpanded = true;
+            for (var ai = 0; ai < allSubjects.length; ai++) {
+              var secBody = allSubjects[ai].querySelector('.ntb-subj-body');
+              if (secBody) {
+                if (!secBody.classList.contains('ntb-collapsed')) allCollapsed = false;
+                if (secBody.classList.contains('ntb-collapsed')) allExpanded = false;
+              }
+            }
+            collapseAllBtn.textContent = allCollapsed ? '📂 全部展开' : '📂 全部收起';
+          }
+        });
+      }
+
+      // Global collapse/expand all button (browse mode)
+      var collapseAllBtn = document.getElementById('ntb-collapse-all');
+      if (collapseAllBtn) {
+        collapseAllBtn.addEventListener('click', function() {
+          var allBodies = content.querySelectorAll('.ntb-subj-body');
+          var allArrows = content.querySelectorAll('.ntb-subj-arrow');
+          // If any expanded → collapse all; otherwise expand all
+          var anyExpanded = false;
+          for (var bi = 0; bi < allBodies.length; bi++) {
+            if (!allBodies[bi].classList.contains('ntb-collapsed')) { anyExpanded = true; break; }
+          }
+          if (anyExpanded) {
+            for (var ci = 0; ci < allBodies.length; ci++) {
+              allBodies[ci].classList.add('ntb-collapsed');
+              self._collapsedSubjects[allBodies[ci].getAttribute('data-subj-body')] = true;
+            }
+            for (var ai2 = 0; ai2 < allArrows.length; ai2++) allArrows[ai2].textContent = '▶';
+            collapseAllBtn.textContent = '📂 全部展开';
+          } else {
+            for (var ei = 0; ei < allBodies.length; ei++) {
+              allBodies[ei].classList.remove('ntb-collapsed');
+              delete self._collapsedSubjects[allBodies[ei].getAttribute('data-subj-body')];
+            }
+            for (var aj = 0; aj < allArrows.length; aj++) allArrows[aj].textContent = '▼';
+            collapseAllBtn.textContent = '📂 全部收起';
+          }
+        });
+      }
+
+      // ── Subject picker (test mode) ──
+      var pickerAllBtn = document.getElementById('ntb-picker-all');
+      var pickerNoneBtn = document.getElementById('ntb-picker-none');
+      if (pickerAllBtn) {
+        pickerAllBtn.addEventListener('click', function() {
+          content.querySelectorAll('.ntb-picker-cb').forEach(function(cb) { cb.checked = true; });
+        });
+      }
+      if (pickerNoneBtn) {
+        pickerNoneBtn.addEventListener('click', function() {
+          content.querySelectorAll('.ntb-picker-cb').forEach(function(cb) { cb.checked = false; });
+        });
+      }
+
+      // Start test from subject picker
+      var startPickerBtn = document.getElementById('ntb-start-picker');
+      if (startPickerBtn) {
+        startPickerBtn.addEventListener('click', function() {
+          var checked = [];
+          content.querySelectorAll('.ntb-picker-cb:checked').forEach(function(cb) {
+            checked.push(cb.getAttribute('data-subj'));
+          });
+          if (checked.length === 0) return; // nothing selected
+          self._testSubjectFilter = checked;
+          // Re-render to start screen
+          content.innerHTML = self._renderHTML();
+          self._attachEvents(content);
+        });
+      }
+
+      // Reselect subjects button (test start screen)
+      var reselectBtn = document.getElementById('ntb-reselect-subjects');
+      if (reselectBtn) {
+        reselectBtn.addEventListener('click', function() {
+          self._testSubjectFilter = null; // back to picker state
+          content.innerHTML = self._renderHTML();
+          self._attachEvents(content);
+        });
+      }
 
       // Start test button
       var startBtn = document.getElementById('ntb-start-test');
