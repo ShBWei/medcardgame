@@ -14,6 +14,9 @@ const { WebSocketServer } = require('ws');
 const PORT = process.env.PORT || 8080;
 const PEER_PORT = process.env.PEER_PORT || 9000;
 const ROOT = __dirname;
+// Serve production build (dist/) when available — 2 requests vs 78 in dev mode
+const STATIC_ROOT = fs.existsSync(path.join(__dirname, 'dist', 'index.html'))
+  ? path.join(__dirname, 'dist') : __dirname;
 
 // ── Security constants ────────────────────────────────────────
 const MAX_REQ_PER_MIN = 120;        // per-IP rate limit
@@ -480,11 +483,11 @@ const staticServer = http.createServer((req, res) => {
     return;
   }
 
-  const filePath = path.join(ROOT, normalized);
+  const filePath = path.join(STATIC_ROOT, normalized);
 
   // Double-check containment
   const realPath = path.resolve(filePath);
-  if (!realPath.startsWith(ROOT)) {
+  if (!realPath.startsWith(STATIC_ROOT)) {
     audit('WARN', ip, `Path escape: ${url} -> ${realPath}`);
     res.writeHead(403); res.end('Forbidden');
     return;
@@ -502,7 +505,7 @@ const staticServer = http.createServer((req, res) => {
   }
   // Block access to top-level tools/ config/ production/ dirs only
   // NOTE: Do NOT use includes('/config/') — it breaks src/modules/config/
-  const relPath = path.relative(ROOT, realPath);
+  const relPath = path.relative(STATIC_ROOT, realPath);
   if (relPath.startsWith('tools' + path.sep) || relPath.startsWith('config' + path.sep) || relPath.startsWith('production' + path.sep) || relPath.startsWith('data' + path.sep)) {
     res.writeHead(404); res.end('Not Found');
     return;
