@@ -253,10 +253,8 @@ function build() {
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f172a">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="preconnect" href="https://medcard-api.3280039592.workers.dev">
-<link rel="dns-prefetch" href="https://medcard-api.3280039592.workers.dev">
 <link rel="preload" href="bundle.js?v=${VERSION}" as="script">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https://medcard-api.3280039592.workers.dev ws: wss:; base-uri 'self'; form-action 'self';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws: wss:; base-uri 'self'; form-action 'self';">
 <title>MediCard 医杀</title>
 <style>
 ${css}

@@ -28,19 +28,12 @@
     },
 
     /**
-     * API server base URL. On static hosting (Cloudflare Pages / GitHub Pages),
-     * defaults to the VPS so leaderboard, accounts, and study-progress work.
-     * Set to '' to disable, or your custom domain (e.g. 'https://mygame.com').
-     *
-     * Must use HTTPS if your Cloudflare Pages site is HTTPS.
-     * Using a Cloudflare-proxied domain pointing to your VPS is recommended.
+     * API server base URL. On Cloudflare Pages, API runs as Pages Functions
+     * on the same domain — no separate server needed.
+     * Set to your custom domain if self-hosting (e.g. 'https://mygame.com').
      */
     apiServer: (function() {
-      var hn = window.location.hostname;
-      if (hn.includes('pages.dev') || hn.includes('github.io')) {
-        return 'https://medcard-api.3280039592.workers.dev';
-      }
-      return '';  // same-origin for local/server modes
+      return '';  // same-origin for all modes (Pages Functions, local, server)
     })(),
 
     /**
