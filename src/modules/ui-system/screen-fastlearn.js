@@ -27,6 +27,7 @@
     _embedded: false,
     _crammingActive: false,
     _crammingExamDate: 0,
+    _flChapterSelections: {}, // { subjectId: { chapterName: true/false } }
 
     /** Get the current rendering target element */
     _getContainer: function() {
@@ -333,9 +334,17 @@
       var back2 = document.getElementById('fl-back-dash2');
       var begin = document.getElementById('fl-begin-session');
 
-      if (back1) back1.addEventListener('click', function() { self._view = 'dashboard'; self.render(); });
-      if (back2) back2.addEventListener('click', function() { self._view = 'dashboard'; self.render(); });
-      if (begin) begin.addEventListener('click', function() { self._startSession(); });
+      if (back1) back1.addEventListener('click', function() {
+        if (MediCard.QuestionLoader) MediCard.QuestionLoader.clearChapterFilters();
+        self._flChapterSelections = {};
+        self._view = 'dashboard'; self.render();
+      });
+      if (back2) back2.addEventListener('click', function() {
+        if (MediCard.QuestionLoader) MediCard.QuestionLoader.clearChapterFilters();
+        self._flChapterSelections = {};
+        self._view = 'dashboard'; self.render();
+      });
+      if (begin) begin.addEventListener('click', function() { self._maybeShowChapterPickerForFL(); });
 
       // Limit pills
       var pills = document.querySelectorAll('.fl-limit-pill');
@@ -362,6 +371,258 @@
           this.classList.toggle('selected');
           var beginBtn = document.getElementById('fl-begin-session');
           if (beginBtn) beginBtn.disabled = self._selectedSubjects.length === 0;
+        });
+      }
+    },
+
+    /* ========================================================================
+     * Chapter Selection (multi-subject grouped picker)
+     * ======================================================================== */
+
+    /** Check selected subjects for chapters and show grouped picker or start directly */
+    _maybeShowChapterPickerForFL: function() {
+      var self = this;
+      if (this._selectedSubjects.length === 0) return;
+      var loader = MediCard.QuestionLoader;
+      if (!loader) { this._startSession(); return; }
+
+      // Collect subjects that need loading
+      var toLoad = [];
+      for (var s = 0; s < this._selectedSubjects.length; s++) {
+        var subj = this._selectedSubjects[s];
+        if (!loader._loadedSubjects.has(subj) && !loader._loadingSubjects[subj]) {
+          toLoad.push(subj);
+        }
+      }
+
+      var doCheck = function() {
+        // Check which selected subjects have chapters
+        var subjectsWithChapters = [];
+        for (var i = 0; i < self._selectedSubjects.length; i++) {
+          var subj = self._selectedSubjects[i];
+          var chapters = loader.getChapters(subj);
+          if (chapters && chapters.length > 0) {
+            subjectsWithChapters.push({ id: subj, chapters: chapters });
+          }
+        }
+        if (subjectsWithChapters.length > 0) {
+          self._showFLChapterPicker(subjectsWithChapters);
+        } else {
+          // No chapters in any selected subject — clear any stale filters, then start
+          loader.clearChapterFilters();
+          self._startSession();
+        }
+      };
+
+      if (toLoad.length > 0) {
+        var screen = self._getContainer();
+        if (screen) screen.innerHTML = '<div class="fl-loading">⏳ 正在加载科目数据...</div>';
+        var loaded = 0;
+        for (var l = 0; l < toLoad.length; l++) {
+          loader.onSubjectReady(toLoad[l], function() {
+            loaded++;
+            if (loaded >= toLoad.length) doCheck();
+          });
+        }
+      } else {
+        doCheck();
+      }
+    },
+
+    /** Render grouped chapter picker for multi-subject selection */
+    _showFLChapterPicker: function(subjectsWithChapters) {
+      var self = this;
+      var meta = MediCard.Config ? (MediCard.Config.subjectMeta || {}) : {};
+      var loader = MediCard.QuestionLoader;
+
+      // Initialize selections: all chapters selected by default
+      // Restore from previous interaction if exists
+      for (var s = 0; s < subjectsWithChapters.length; s++) {
+        var subj = subjectsWithChapters[s];
+        if (!this._flChapterSelections[subj.id]) {
+          this._flChapterSelections[subj.id] = {};
+          for (var c = 0; c < subj.chapters.length; c++) {
+            this._flChapterSelections[subj.id][subj.chapters[c]] = true;
+          }
+        }
+      }
+
+      // Build sections HTML
+      var sectionsHtml = '';
+      for (var i = 0; i < subjectsWithChapters.length; i++) {
+        var subj = subjectsWithChapters[i];
+        var m = meta[subj.id] || {};
+        var subjectName = m.name || subj.id;
+        var icon = m.icon || '📚';
+
+        // Count questions per chapter
+        var questions = loader._getSubjectRaw(subj.id) || [];
+        var chapterCounts = {};
+        for (var qi = 0; qi < questions.length; qi++) {
+          var ch = questions[qi].chapter;
+          if (ch) chapterCounts[ch] = (chapterCounts[ch] || 0) + 1;
+        }
+
+        var chapterListHtml = '';
+        for (var j = 0; j < subj.chapters.length; j++) {
+          var chName = subj.chapters[j];
+          var count = chapterCounts[chName] || 0;
+          var checked = this._flChapterSelections[subj.id][chName] !== false ? ' checked' : '';
+          chapterListHtml += '' +
+            '<label class="fl-chapter-item">' +
+              '<input type="checkbox" class="fl-chapter-cb" data-subject="' + _esc(subj.id) + '" data-chapter="' + _esc(chName) + '"' + checked + '>' +
+              '<span class="fl-chapter-label">' + _esc(chName) + '</span>' +
+              '<span class="fl-chapter-count">' + count + '题</span>' +
+            '</label>';
+        }
+
+        sectionsHtml += '' +
+          '<div class="fl-chapter-section">' +
+            '<div class="fl-chapter-section-header">' +
+              '<span class="fl-chapter-section-icon">' + icon + '</span>' +
+              '<span class="fl-chapter-section-title">' + _esc(subjectName) + '</span>' +
+              '<div class="fl-chapter-section-actions">' +
+                '<button class="fl-chapter-section-all" data-subject="' + _esc(subj.id) + '">全选</button>' +
+                '<button class="fl-chapter-section-none" data-subject="' + _esc(subj.id) + '">清除</button>' +
+              '</div>' +
+            '</div>' +
+            '<div class="fl-chapter-section-list">' + chapterListHtml + '</div>' +
+          '</div>';
+      }
+
+      // Also list subjects without chapters (just info)
+      var noChapterSubjects = [];
+      for (var ns = 0; ns < this._selectedSubjects.length; ns++) {
+        var nsId = this._selectedSubjects[ns];
+        var hasChapters = false;
+        for (var hc = 0; hc < subjectsWithChapters.length; hc++) {
+          if (subjectsWithChapters[hc].id === nsId) { hasChapters = true; break; }
+        }
+        if (!hasChapters) {
+          var nm = meta[nsId] || {};
+          var nq = loader.getSubjectCount(nsId);
+          noChapterSubjects.push({ id: nsId, name: nm.name || nsId, icon: nm.icon || '📚', count: nq });
+        }
+      }
+
+      var noChapterHtml = '';
+      if (noChapterSubjects.length > 0) {
+        noChapterHtml = '<div class="fl-chapter-noch-section">' +
+          '<div class="fl-chapter-noch-title">📋 无章节数据的科目（将使用全部题目）</div>';
+        for (var nci = 0; nci < noChapterSubjects.length; nci++) {
+          var nc = noChapterSubjects[nci];
+          noChapterHtml += '' +
+            '<div class="fl-chapter-noch-item">' +
+              '<span>' + nc.icon + ' ' + _esc(nc.name) + '</span>' +
+              '<span class="fl-chapter-noch-count">' + nc.count + '题</span>' +
+            '</div>';
+        }
+        noChapterHtml += '</div>';
+      }
+
+      var totalFiltered = 0;
+      for (var tsi = 0; tsi < subjectsWithChapters.length; tsi++) {
+        var tSubjId = subjectsWithChapters[tsi].id;
+        var tQuestions = loader._getSubjectRaw(tSubjId) || [];
+        var tSel = self._flChapterSelections[tSubjId] || {};
+        for (var tqi = 0; tqi < tQuestions.length; tqi++) {
+          var tch = tQuestions[tqi].chapter;
+          if (!tch || tSel[tch] !== false) totalFiltered++;
+        }
+      }
+      for (var nci2 = 0; nci2 < noChapterSubjects.length; nci2++) {
+        totalFiltered += noChapterSubjects[nci2].count;
+      }
+
+      var html = '' +
+        '<div class="fl-chapter-picker">' +
+          '<div class="fl-back-bar">' +
+            '<button class="fl-btn-back-sm" id="fl-chapter-back">← 返回</button>' +
+          '</div>' +
+          '<h3 style="text-align:center;font-size:18px;color:var(--s-text);margin:0 0 4px;">选择章节</h3>' +
+          '<p style="text-align:center;font-size:13px;color:var(--s-text2);margin:0 0 16px;">选择要学习的章节范围 · 共 <strong style="color:var(--s-accent);">' + totalFiltered + '</strong> 题</p>' +
+          sectionsHtml +
+          noChapterHtml +
+          '<button class="fl-btn-start" id="fl-chapter-start" style="margin-top:16px;">开始智能调度学习</button>' +
+        '</div>';
+
+      var screen = this._getContainer();
+      if (screen) {
+        screen.innerHTML = html;
+        this._attachFLChapterPickerEvents(subjectsWithChapters);
+      }
+    },
+
+    /** Wire up grouped chapter picker events */
+    _attachFLChapterPickerEvents: function(subjectsWithChapters) {
+      var self = this;
+
+      // Back button
+      var backBtn = document.getElementById('fl-chapter-back');
+      if (backBtn) {
+        backBtn.addEventListener('click', function() {
+          self._view = 'subjectSelect';
+          self.render();
+        });
+      }
+
+      // Per-subject select-all buttons
+      var allBtns = document.querySelectorAll('.fl-chapter-section-all');
+      for (var a = 0; a < allBtns.length; a++) {
+        allBtns[a].addEventListener('click', function() {
+          var subj = this.getAttribute('data-subject');
+          var cbs = document.querySelectorAll('.fl-chapter-cb[data-subject="' + subj + '"]');
+          for (var i = 0; i < cbs.length; i++) {
+            cbs[i].checked = true;
+            self._flChapterSelections[subj][cbs[i].getAttribute('data-chapter')] = true;
+          }
+        });
+      }
+
+      // Per-subject deselect-all buttons
+      var noneBtns = document.querySelectorAll('.fl-chapter-section-none');
+      for (var n = 0; n < noneBtns.length; n++) {
+        noneBtns[n].addEventListener('click', function() {
+          var subj = this.getAttribute('data-subject');
+          var cbs = document.querySelectorAll('.fl-chapter-cb[data-subject="' + subj + '"]');
+          for (var i = 0; i < cbs.length; i++) {
+            cbs[i].checked = false;
+            self._flChapterSelections[subj][cbs[i].getAttribute('data-chapter')] = false;
+          }
+        });
+      }
+
+      // Individual checkboxes
+      var allCbs = document.querySelectorAll('.fl-chapter-cb');
+      for (var c = 0; c < allCbs.length; c++) {
+        allCbs[c].addEventListener('change', function() {
+          var subj = this.getAttribute('data-subject');
+          var ch = this.getAttribute('data-chapter');
+          if (!self._flChapterSelections[subj]) self._flChapterSelections[subj] = {};
+          self._flChapterSelections[subj][ch] = this.checked;
+        });
+      }
+
+      // Start button
+      var startBtn = document.getElementById('fl-chapter-start');
+      if (startBtn) {
+        startBtn.addEventListener('click', function() {
+          var loader = MediCard.QuestionLoader;
+          if (loader) {
+            loader.clearChapterFilters();
+            for (var si = 0; si < subjectsWithChapters.length; si++) {
+              var subj = subjectsWithChapters[si];
+              var sel = self._flChapterSelections[subj.id] || {};
+              var selected = [];
+              for (var ch in sel) {
+                if (sel[ch]) selected.push(ch);
+              }
+              if (selected.length > 0 && selected.length < subj.chapters.length) {
+                loader.setChapterFilter(subj.id, selected);
+              }
+            }
+          }
+          self._startSession();
         });
       }
     },
@@ -616,6 +877,7 @@
       if (quitBtn) {
         quitBtn.addEventListener('click', function() {
           if (confirm('确定要结束当前学习吗？进度将保存。')) {
+            if (MediCard.QuestionLoader) MediCard.QuestionLoader.clearChapterFilters();
             FL.save();
             self._view = 'dashboard';
             self.render();

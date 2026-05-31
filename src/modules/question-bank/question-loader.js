@@ -208,7 +208,10 @@
           var pattern = "MediCard.QuestionBank['" + subjectId + "']";
           var startMarker = pattern + ' = ';
           var startIdx = text.indexOf(startMarker);
-          if (startIdx < 0) {
+          if (startIdx >= 0) {
+            // Advance past '= ' so indexOf('[') finds the array, not ['subjectId']
+            startIdx = startIdx + startMarker.length;
+          } else {
             // Try alternative format: MediCard.QuestionBank.subjectId = [
             startMarker = 'MediCard.QuestionBank.' + subjectId + ' = ';
             startIdx = text.indexOf(startMarker);
@@ -242,6 +245,8 @@
           if (arrayEnd < 0) { self._fetchSubjectScript(subjectId); return; }
 
           var jsonStr = text.substring(arrayStart, arrayEnd);
+          // Remove trailing commas (valid JS but invalid JSON)
+          jsonStr = jsonStr.replace(/,(\s*\])/g, '$1').replace(/,(\s*\})/g, '$1');
           var data = JSON.parse(jsonStr);
 
           if (!data || !Array.isArray(data)) { self._fetchSubjectScript(subjectId); return; }

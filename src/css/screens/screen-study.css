@@ -1610,3 +1610,90 @@
 .study-theme-camp #screen-study::-webkit-scrollbar-thumb {
   background: rgba(255,255,255,0.1); border-radius: 3px;
 }
+
+/* ================================================================
+ * Chapter Picker (subject → chapter selection)
+ * ================================================================ */
+.study-chapter-picker {
+  animation: qFadeIn 0.35s ease-out;
+}
+
+.study-chapter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.study-chapter-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  min-height: 48px;
+  border: 1px solid var(--s-border);
+  border-radius: 10px;
+  background: var(--s-surface);
+  cursor: pointer;
+  transition: all 0.15s;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.study-chapter-item:hover {
+  border-color: var(--s-accent);
+  background: var(--s-surface-hover);
+}
+
+.study-chapter-cb {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--s-accent);
+  cursor: pointer;
+  flex-shrink: 0;
+  margin: 0;
+}
+
+.study-chapter-label {
+  flex: 1;
+  font-size: clamp(14px, 3.5vw, 16px);
+  font-weight: 600;
+  color: var(--s-text);
+}
+
+.study-chapter-count {
+  font-size: 13px;
+  color: var(--s-text3);
+  flex-shrink: 0;
+}
+
+/* Scrollbar for chapter list */
+.study-chapter-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.study-chapter-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.study-chapter-list::-webkit-scrollbar-thumb {
+  background: var(--s-border);
+  border-radius: 2px;
+}
+
+/* Responsive: wider screens */
+@media (min-width: 600px) {
+  .study-chapter-list {
+    max-height: 55vh;
+  }
+}
+
+@media (min-width: 900px) {
+  .study-chapter-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+}

@@ -47,9 +47,9 @@
       var totalCorrect = 0;
       var totalQuestions = 0;
       for (var s = 0; s < subjects.length; s++) {
-        var prog = this._progress[subjects[s]] || { answered: 0, correct: 0 };
-        totalAnswered += prog.answered;
-        totalCorrect += prog.correct;
+        var aggProg = this._getAggregatedProgress(subjects[s]);
+        totalAnswered += aggProg.answered;
+        totalCorrect += aggProg.correct;
         totalQuestions += (meta[subjects[s]] && meta[subjects[s]].questionCount) || 0;
       }
 
@@ -75,7 +75,8 @@
       for (var i = 0; i < subjects.length; i++) {
         var subj = subjects[i];
         var m = meta[subj] || {};
-        var prog = this._progress[subj] || { answered: 0, correct: 0 };
+        var aggProg = this._getAggregatedProgress(subj);
+        var prog = (aggProg.answered > 0) ? aggProg : (this._progress[subj] || { answered: 0, correct: 0 });
         var pct = m.questionCount ? Math.round(prog.answered / m.questionCount * 100) : 0;
         var isLoaded = this._isSubjectLoaded(subj);
         if (isLoaded) loadedCount++;
@@ -227,7 +228,8 @@
       if (!card) return;
       var meta = MediCard.Config.subjectMeta || {};
       var m = meta[subjectId] || {};
-      var prog = this._progress[subjectId] || { answered: 0, correct: 0 };
+      var aggProg = this._getAggregatedProgress(subjectId);
+      var prog = (aggProg.answered > 0) ? aggProg : (this._progress[subjectId] || { answered: 0, correct: 0 });
       var pct = m.questionCount ? Math.round(prog.answered / m.questionCount * 100) : 0;
       card.classList.remove('study-subject-loading');
       card.innerHTML = '' +
@@ -238,11 +240,165 @@
       // Re-attach click handler
       var self = this;
       card.addEventListener('click', function() {
-        self.startSubject(subjectId);
+        self._maybeShowChapterPicker(subjectId);
       });
     },
 
     _loadedMap: {}, // tracks which subjects we know are loaded (avoids redundant card updates)
+
+    _chapterPickerSelections: {}, // { chapterName: true } during picker interaction
+
+    /** Check if subject has chapters and show picker or proceed directly */
+    _maybeShowChapterPicker: function(subjectId) {
+      var loader = MediCard.QuestionLoader;
+      if (!loader) { this.startSubject(subjectId); return; }
+
+      // If subject not loaded yet, load it first then check
+      if (!this._isSubjectLoaded(subjectId)) {
+        var self = this;
+        this._showLoading();
+        loader.onSubjectReady(subjectId, function() {
+          var chapters = loader.getChapters(subjectId);
+          if (chapters && chapters.length > 0) {
+            self._showChapterPicker(subjectId, chapters);
+          } else {
+            self.startSubject(subjectId);
+          }
+        });
+        return;
+      }
+
+      var chapters = loader.getChapters(subjectId);
+      if (chapters && chapters.length > 0) {
+        this._showChapterPicker(subjectId, chapters);
+      } else {
+        this.startSubject(subjectId);
+      }
+    },
+
+    /** Render chapter picker UI in place of subject grid */
+    _showChapterPicker: function(subjectId, chapters) {
+      var self = this;
+      var meta = MediCard.Config.subjectMeta || {};
+      var m = meta[subjectId] || {};
+      var subjectName = m.name || subjectId;
+      var icon = m.icon || '📚';
+
+      // Count questions per chapter
+      var questions = MediCard.QuestionLoader._getSubjectRaw(subjectId) || [];
+      var chapterCounts = {};
+      for (var i = 0; i < questions.length; i++) {
+        var ch = questions[i].chapter;
+        if (ch) chapterCounts[ch] = (chapterCounts[ch] || 0) + 1;
+      }
+
+      // Initialize all chapters as selected
+      this._chapterPickerSelections = {};
+      for (var c = 0; c < chapters.length; c++) {
+        this._chapterPickerSelections[chapters[c]] = true;
+      }
+
+      // Build chapter list HTML
+      var listHtml = '';
+      for (var j = 0; j < chapters.length; j++) {
+        var chName = chapters[j];
+        var count = chapterCounts[chName] || 0;
+        listHtml += '' +
+          '<label class="study-chapter-item">' +
+            '<input type="checkbox" class="study-chapter-cb" data-chapter="' + _esc(chName) + '" checked>' +
+            '<span class="study-chapter-label">' + _esc(chName) + '</span>' +
+            '<span class="study-chapter-count">' + count + '题</span>' +
+          '</label>';
+      }
+
+      var html = '' +
+        '<div class="study-chapter-picker">' +
+          '<div class="study-header">' +
+            '<div class="study-header-left">' +
+              '<button class="study-back-btn" id="study-chapter-back" title="返回">←</button>' +
+              '<span class="study-title">' + icon + ' ' + _esc(subjectName) + ' · 章节选择</span>' +
+            '</div>' +
+          '</div>' +
+          '<div style="display:flex;gap:8px;margin-bottom:12px;">' +
+            '<button class="study-action-btn primary" id="study-chapter-all" style="flex:1;">✔ 全选</button>' +
+            '<button class="study-action-btn" id="study-chapter-none" style="flex:1;">清除</button>' +
+          '</div>' +
+          '<div class="study-chapter-list">' + listHtml + '</div>' +
+          '<button class="study-continue-btn" id="study-chapter-start" style="width:100%;margin-top:16px;min-height:48px;">' +
+            '🚀 开始刷题' +
+          '</button>' +
+        '</div>';
+
+      document.getElementById('study-main-area').innerHTML = html;
+      this._attachChapterPickerEvents(subjectId, chapters);
+    },
+
+    /** Wire up chapter picker UI events */
+    _attachChapterPickerEvents: function(subjectId, chapters) {
+      var self = this;
+
+      // Back button
+      var backBtn = document.getElementById('study-chapter-back');
+      if (backBtn) {
+        backBtn.addEventListener('click', function() {
+          self._chapterPickerSelections = {};
+          self.render();
+        });
+      }
+
+      // Select all
+      var allBtn = document.getElementById('study-chapter-all');
+      if (allBtn) {
+        allBtn.addEventListener('click', function() {
+          var cbs = document.querySelectorAll('.study-chapter-cb');
+          for (var i = 0; i < cbs.length; i++) {
+            cbs[i].checked = true;
+            self._chapterPickerSelections[cbs[i].getAttribute('data-chapter')] = true;
+          }
+        });
+      }
+
+      // Deselect all
+      var noneBtn = document.getElementById('study-chapter-none');
+      if (noneBtn) {
+        noneBtn.addEventListener('click', function() {
+          var cbs = document.querySelectorAll('.study-chapter-cb');
+          for (var i = 0; i < cbs.length; i++) {
+            cbs[i].checked = false;
+            self._chapterPickerSelections[cbs[i].getAttribute('data-chapter')] = false;
+          }
+        });
+      }
+
+      // Individual checkboxes
+      var cbs = document.querySelectorAll('.study-chapter-cb');
+      for (var j = 0; j < cbs.length; j++) {
+        cbs[j].addEventListener('change', function() {
+          var ch = this.getAttribute('data-chapter');
+          self._chapterPickerSelections[ch] = this.checked;
+        });
+      }
+
+      // Start button
+      var startBtn = document.getElementById('study-chapter-start');
+      if (startBtn) {
+        startBtn.addEventListener('click', function() {
+          var selected = [];
+          for (var ch in self._chapterPickerSelections) {
+            if (self._chapterPickerSelections[ch]) selected.push(ch);
+          }
+          if (selected.length === 0) return;
+
+          var loader = MediCard.QuestionLoader;
+          if (loader) {
+            loader.setChapterFilter(subjectId, selected);
+          }
+
+          self._chapterPickerSelections = {};
+          self.startSubject(subjectId);
+        });
+      }
+    },
 
     /** Enter question session for a subject */
     startSubject: function(subjectId) {
@@ -262,7 +418,7 @@
       var questions = MediCard.QuestionLoader.getSubject(subjectId);
       if (questions && questions.length > 0) {
         this._questions = this._shuffleQuestions(questions);
-        this._questionIndex = this._getSavedIndex(subjectId);
+        this._questionIndex = Math.min(this._getSavedIndex(subjectId), questions.length - 1);
         this._renderQuestion();
         return;
       }
@@ -294,6 +450,8 @@
       this._currentSubject = null;
       this._questions = [];
       this._answered = false;
+      // Clear chapter filters when returning to subject list
+      if (MediCard.QuestionLoader) MediCard.QuestionLoader.clearChapterFilters();
       // If in fastlearn tab, switch back to practice
       if (this._currentTab === 'fastlearn') {
         this._currentTab = 'practice';
@@ -480,25 +638,52 @@
       } catch(e) { doneOnce(); }
     },
 
+    /** Get composite progress key for chapter-filtered sessions.
+     *  e.g. "immunology" (all chapters) or "immunology|ch1,ch2" (filtered).
+     *  Uses sorted chapter names for deterministic keys regardless of selection order. */
+    _getChapterProgressKey: function(subjectId) {
+      var filter = MediCard.QuestionLoader._chapterFilters[subjectId];
+      if (!filter || !filter.length) return subjectId;
+      var sorted = filter.slice().sort();
+      return subjectId + '|' + sorted.join(',');
+    },
+
+    /** Aggregate progress across all chapter-filter keys for a subject.
+     *  Sums full-subject entry + all chapter-specific entries. */
+    _getAggregatedProgress: function(subjectId) {
+      var result = { answered: 0, correct: 0 };
+      var prefix = subjectId;
+      for (var key in this._progress) {
+        if (!this._progress.hasOwnProperty(key)) continue;
+        if (key === subjectId || key.indexOf(subjectId + '|') === 0) {
+          result.answered += this._progress[key].answered || 0;
+          result.correct += this._progress[key].correct || 0;
+        }
+      }
+      return result;
+    },
+
     _getSavedIndex: function(subjectId) {
-      var prog = this._progress[subjectId];
+      var key = this._getChapterProgressKey(subjectId);
+      var prog = this._progress[key];
       return prog ? (prog.index || 0) : 0;
     },
 
     _recordAnswer: function(correct) {
       var subj = this._currentSubject;
-      if (!this._progress[subj]) {
-        this._progress[subj] = { answered: 0, correct: 0, index: 0 };
+      var key = this._getChapterProgressKey(subj);
+      if (!this._progress[key]) {
+        this._progress[key] = { answered: 0, correct: 0, index: 0 };
       }
-      this._progress[subj].answered++;
+      this._progress[key].answered++;
       if (correct) {
-        this._progress[subj].correct++;
+        this._progress[key].correct++;
         // Push correct answer to leaderboard: +1 point per correct answer (local cache)
         this._pushCorrectToLeaderboard();
       }
-      this._progress[subj].index = this._questionIndex + 1;
-      if (this._progress[subj].index >= this._questions.length) {
-        this._progress[subj].index = 0; // wrap around
+      this._progress[key].index = this._questionIndex + 1;
+      if (this._progress[key].index >= this._questions.length) {
+        this._progress[key].index = 0; // wrap around
       }
       this._saveSubjectProgress();
     },
@@ -689,10 +874,16 @@
       var isBookmarked = MediCard.WrongQuestionBook && MediCard.WrongQuestionBook.isBookmarked(qId);
       var isMulti = q.questionType === 'multiple';
 
+      // Show chapter when a chapter filter is active
+      var chapterFilters = MediCard.QuestionLoader._chapterFilters || {};
+      var activeFilter = chapterFilters[this._currentSubject];
+      var chapterLabel = (activeFilter && activeFilter.length > 0 && q.chapter)
+        ? ' · ' + _esc(q.chapter) : '';
+
       var html = '' +
         '<div class="study-question-area">' +
           '<div class="study-question-header">' +
-            '<span class="study-question-num">' + subjectName + ' · 第' + (idx + 1) + '/' + total + '题</span>' +
+            '<span class="study-question-num">' + subjectName + chapterLabel + ' · 第' + (idx + 1) + '/' + total + '题</span>' +
             '<span>' + (q.difficulty === 'rare' ? '🔷' : q.difficulty === 'epic' ? '💎' : '') +
               (isMulti ? ' <span style="display:inline-block;background:#fbbf24;color:#1c1917;font-size:11px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;">多选</span>' : '') +
             '</span>' +
@@ -1361,7 +1552,7 @@
       for (var i = 0; i < cards.length; i++) {
         cards[i].addEventListener('click', function() {
           var subjectId = this.getAttribute('data-subject');
-          if (subjectId) self.startSubject(subjectId);
+          if (subjectId) self._maybeShowChapterPicker(subjectId);
         });
       }
     },
