@@ -237,16 +237,36 @@
         '<div class="study-subject-name">' + (m.name || subjectId) + '</div>' +
         '<div class="study-subject-count">' + (m.questionCount || 0) + '题 · 已答' + prog.answered + ' · 正确率' + (prog.answered > 0 ? Math.round(prog.correct / prog.answered * 100) : 0) + '%</div>' +
         '<div class="study-subject-progress"><div class="study-subject-progress-fill" style="width:' + pct + '%;"></div></div>';
-      // Re-attach click handler
-      var self = this;
-      card.addEventListener('click', function() {
-        self._maybeShowChapterPicker(subjectId);
-      });
+      // Handler already attached by _attachSubjectEvents on the card element;
+      // card.innerHTML replacement doesn't remove the element's event listeners.
     },
 
     _loadedMap: {}, // tracks which subjects we know are loaded (avoids redundant card updates)
 
     _chapterPickerSelections: {}, // { chapterName: true } during picker interaction
+
+    /** Save chapter selections to localStorage (per-subject). */
+    _saveChapterSelections: function(subjectId) {
+      try {
+        var all = {};
+        var raw = localStorage.getItem('medicard_chapter_selections');
+        if (raw) { try { all = JSON.parse(raw); } catch(e) { all = {}; } }
+        all[subjectId] = this._chapterPickerSelections;
+        localStorage.setItem('medicard_chapter_selections', JSON.stringify(all));
+      } catch(e) {}
+    },
+
+    /** Load previous chapter selections for a subject. Returns null if none saved. */
+    _loadChapterSelections: function(subjectId) {
+      try {
+        var raw = localStorage.getItem('medicard_chapter_selections');
+        if (raw) {
+          var all = JSON.parse(raw);
+          return all[subjectId] || null;
+        }
+      } catch(e) {}
+      return null;
+    },
 
     /** Check if subject has chapters and show picker or proceed directly */
     _maybeShowChapterPicker: function(subjectId) {
@@ -292,10 +312,18 @@
         if (ch) chapterCounts[ch] = (chapterCounts[ch] || 0) + 1;
       }
 
-      // Initialize all chapters as selected
+      // Initialize all chapters as selected, then restore saved preferences
       this._chapterPickerSelections = {};
       for (var c = 0; c < chapters.length; c++) {
         this._chapterPickerSelections[chapters[c]] = true;
+      }
+      var saved = this._loadChapterSelections(subjectId);
+      if (saved) {
+        for (var ch in saved) {
+          if (saved.hasOwnProperty(ch) && this._chapterPickerSelections.hasOwnProperty(ch)) {
+            this._chapterPickerSelections[ch] = saved[ch];
+          }
+        }
       }
 
       // Build chapter list HTML
@@ -303,9 +331,10 @@
       for (var j = 0; j < chapters.length; j++) {
         var chName = chapters[j];
         var count = chapterCounts[chName] || 0;
+        var checked = this._chapterPickerSelections[chName] !== false ? ' checked' : '';
         listHtml += '' +
           '<label class="study-chapter-item">' +
-            '<input type="checkbox" class="study-chapter-cb" data-chapter="' + _esc(chName) + '" checked>' +
+            '<input type="checkbox" class="study-chapter-cb" data-chapter="' + _esc(chName) + '"' + checked + '>' +
             '<span class="study-chapter-label">' + _esc(chName) + '</span>' +
             '<span class="study-chapter-count">' + count + '题</span>' +
           '</label>';
@@ -388,6 +417,8 @@
             if (self._chapterPickerSelections[ch]) selected.push(ch);
           }
           if (selected.length === 0) return;
+
+          self._saveChapterSelections(subjectId);
 
           var loader = MediCard.QuestionLoader;
           if (loader) {
@@ -638,53 +669,85 @@
       } catch(e) { doneOnce(); }
     },
 
-    /** Get composite progress key for chapter-filtered sessions.
-     *  e.g. "immunology" (all chapters) or "immunology|ch1,ch2" (filtered).
-     *  Uses sorted chapter names for deterministic keys regardless of selection order. */
-    _getChapterProgressKey: function(subjectId) {
+    /** Per-chapter progress key: "subjectId|chapterName".
+     *  Reads chapter from the current question, NOT from active filter.
+     *  This ensures progress is always tracked per individual chapter,
+     *  regardless of which chapter combination is currently selected. */
+    _getChapterKey: function(subjectId) {
+      var q = this._questions[this._questionIndex];
+      var chapter = q ? q.chapter : null;
+      if (chapter) return subjectId + '|' + chapter;
+      return subjectId;
+    },
+
+    /** Session index key: "subjectId|__session__|sorted_chapters".
+     *  Tracks position within a specific chapter combination's shuffled pool.
+     *  Falls back to plain subjectId when no chapter filter is active. */
+    _getSessionKey: function(subjectId) {
       var filter = MediCard.QuestionLoader._chapterFilters[subjectId];
       if (!filter || !filter.length) return subjectId;
       var sorted = filter.slice().sort();
-      return subjectId + '|' + sorted.join(',');
+      return subjectId + '|__session__|' + sorted.join(',');
     },
 
-    /** Aggregate progress across all chapter-filter keys for a subject.
-     *  Sums full-subject entry + all chapter-specific entries. */
+    /** Aggregate progress across per-chapter entries for a subject.
+     *  Sums all "subjectId|chapterName" entries. Falls back to legacy
+     *  full-subject entry if no per-chapter entries exist. */
     _getAggregatedProgress: function(subjectId) {
       var result = { answered: 0, correct: 0 };
-      var prefix = subjectId;
+      var prefix = subjectId + '|';
+      var hasChapterEntries = false;
       for (var key in this._progress) {
         if (!this._progress.hasOwnProperty(key)) continue;
-        if (key === subjectId || key.indexOf(subjectId + '|') === 0) {
+        // Sum per-chapter entries; skip session-index keys
+        if (key.indexOf(prefix) === 0 && key.indexOf('|__session__|') < 0) {
           result.answered += this._progress[key].answered || 0;
           result.correct += this._progress[key].correct || 0;
+          hasChapterEntries = true;
+        }
+      }
+      if (!hasChapterEntries) {
+        // Legacy: full-subject entry (no chapter filter ever used, or no-chapter subject)
+        var p = this._progress[subjectId];
+        if (p) {
+          result.answered = p.answered || 0;
+          result.correct = p.correct || 0;
         }
       }
       return result;
     },
 
     _getSavedIndex: function(subjectId) {
-      var key = this._getChapterProgressKey(subjectId);
+      var key = this._getSessionKey(subjectId);
       var prog = this._progress[key];
       return prog ? (prog.index || 0) : 0;
     },
 
     _recordAnswer: function(correct) {
       var subj = this._currentSubject;
-      var key = this._getChapterProgressKey(subj);
-      if (!this._progress[key]) {
-        this._progress[key] = { answered: 0, correct: 0, index: 0 };
+      var q = this._questions[this._questionIndex];
+
+      // Per-chapter progress
+      var chapterKey = this._getChapterKey(subj);
+      if (!this._progress[chapterKey]) {
+        this._progress[chapterKey] = { answered: 0, correct: 0 };
       }
-      this._progress[key].answered++;
+      this._progress[chapterKey].answered++;
       if (correct) {
-        this._progress[key].correct++;
-        // Push correct answer to leaderboard: +1 point per correct answer (local cache)
+        this._progress[chapterKey].correct++;
         this._pushCorrectToLeaderboard();
       }
-      this._progress[key].index = this._questionIndex + 1;
-      if (this._progress[key].index >= this._questions.length) {
-        this._progress[key].index = 0; // wrap around
+
+      // Session index (position in shuffled pool)
+      var sessionKey = this._getSessionKey(subj);
+      if (!this._progress[sessionKey]) {
+        this._progress[sessionKey] = { index: 0 };
       }
+      this._progress[sessionKey].index = this._questionIndex + 1;
+      if (this._progress[sessionKey].index >= this._questions.length) {
+        this._progress[sessionKey].index = 0;
+      }
+
       this._saveSubjectProgress();
     },
 
