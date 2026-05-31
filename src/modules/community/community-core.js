@@ -270,7 +270,11 @@
 
   /* ============ Leaderboard Data ============ */
   MC.updateLeaderboard = function(type, entry) {
-    var lb = _read(K.LEADERBOARD) || { battle: [], contribution: [], weeklyBattle: [], weeklyContribution: [] };
+    var lb = _read(K.LEADERBOARD) || {};
+    if (!lb.battle) lb.battle = [];
+    if (!lb.contribution) lb.contribution = [];
+    if (!lb.weeklyBattle) lb.weeklyBattle = [];
+    if (!lb.weeklyContribution) lb.weeklyContribution = [];
     var userId = _currentUserId();
     var list = type === 'battle' ? lb.battle : lb.contribution;
     var found = false;
