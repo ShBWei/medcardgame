@@ -255,7 +255,13 @@ ${css}
 
   console.log('\n✅ Build complete → dist/');
   console.log('   Deploy: dist/ directory to Cloudflare Pages');
-  console.log('   HTTP requests: 1 HTML + 1 JS = 2 total (vs 78 before)');
+  console.log('   HTTP requests: 1 HTML + 1 JS = 2 total (vs 78 before)\n');
+
+  // Also output to project root so the local server can serve prod builds
+  fs.copyFileSync(path.join(DIST, 'bundle.js'), path.join(ROOT, 'bundle.js'));
+  fs.writeFileSync(path.join(ROOT, 'index.prod.html'), html, 'utf8');
+  console.log('   Root: bundle.js + index.prod.html written');
+  console.log('   Server will auto-detect and serve production version');
 }
 
 build();

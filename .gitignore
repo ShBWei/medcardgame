@@ -57,6 +57,10 @@ server.log
 # Claude Code
 .claude/
 
+# Build artifacts
+bundle.js
+index.prod.html
+
 # Environment
 .env
 .env.local
