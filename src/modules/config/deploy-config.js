@@ -38,23 +38,19 @@
     apiServer: (function() {
       var hn = window.location.hostname;
       if (hn.includes('pages.dev') || hn.includes('github.io')) {
-        return 'https://134.175.165.223';
+        return 'https://medcard-api.3280039592.workers.dev';
       }
       return '';  // same-origin for local/server modes
     })(),
 
     /**
      * Signaling server override for static hosting (Cloudflare Pages / GitHub Pages).
-     * Defaults to matching apiServer (ws protocol) for Cloudflare Pages.
-     * When empty/null, uses same-origin signaling (works for local/server modes).
+     * Set to null for now — multiplayer requires Durable Objects (future work).
+     * Single-player, study, FastLearn, and stress-relief modes all work without it.
      *
      * Override: MediCard.Config.signalingServer = 'wss://relay.mygame.com';
      */
     signalingServer: (function() {
-      var hn = window.location.hostname;
-      if (hn.includes('pages.dev') || hn.includes('github.io')) {
-        return 'wss://134.175.165.223';
-      }
       return null;
     })(),
 
