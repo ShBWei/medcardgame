@@ -422,7 +422,13 @@
 
           var loader = MediCard.QuestionLoader;
           if (loader) {
-            loader.setChapterFilter(subjectId, selected);
+            // All chapters = no filter (uses plain subjectId key, compatible with pre-picker sessions).
+            // Partial chapters = set filter (uses session key for position tracking).
+            if (selected.length === chapters.length) {
+              delete loader._chapterFilters[subjectId];
+            } else {
+              loader.setChapterFilter(subjectId, selected);
+            }
           }
 
           self._chapterPickerSelections = {};
