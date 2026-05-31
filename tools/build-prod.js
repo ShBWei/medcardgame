@@ -176,6 +176,21 @@ function readJS() {
   return js;
 }
 
+function minifyCSS(css) {
+  // Remove comments
+  css = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  // Collapse whitespace
+  css = css.replace(/\s+/g, ' ');
+  // Remove spaces around structural characters
+  css = css.replace(/\s*([{};:,>+~])\s*/g, '$1');
+  // Remove trailing semicolons before }
+  css = css.replace(/;}/g, '}');
+  // Clean up
+  css = css.replace(/\(\s+/g, '(').replace(/\s+\)/g, ')');
+  css = css.replace(/{\s*/g, '{').replace(/\s*}/g, '}');
+  return css.trim();
+}
+
 function build() {
   console.log('MediCard Production Build v' + VERSION);
   console.log('================================\n');
@@ -187,17 +202,34 @@ function build() {
   fs.mkdirSync(DIST, { recursive: true });
 
   // 1. Bundle CSS (inline in HTML)
-  const css = readCSS();
+  const rawCSS = readCSS();
+  const css = minifyCSS(rawCSS);
   const cssSize = (Buffer.byteLength(css, 'utf8') / 1024).toFixed(1);
-  console.log('  → CSS bundle: ' + cssSize + ' KB\n');
+  const cssSaved = rawCSS.length > 0 ? Math.round((1 - Buffer.byteLength(css, 'utf8') / Buffer.byteLength(rawCSS, 'utf8')) * 100) : 0;
+  console.log('  → CSS bundle: ' + cssSize + ' KB (saved ' + cssSaved + '%)\n');
 
   // 2. Bundle JS
   const js = readJS();
   const jsSize = (Buffer.byteLength(js, 'utf8') / 1024).toFixed(1);
   console.log('  → JS bundle: ' + jsSize + ' KB\n');
 
-  // 3. Write bundle.js
-  fs.writeFileSync(path.join(DIST, 'bundle.js'), js, 'utf8');
+  // 3. Write bundle.js (unminified first, then minify)
+  const bundlePath = path.join(DIST, 'bundle.js');
+  fs.writeFileSync(bundlePath, js, 'utf8');
+  console.log('  → JS pre-minify: ' + (Buffer.byteLength(js, 'utf8') / 1024).toFixed(1) + ' KB');
+
+  // Minify with terser
+  try {
+    const { execSync } = require('child_process');
+    console.log('  → Minifying with terser...');
+    execSync('npx --yes terser "' + bundlePath + '" -c -m -o "' + bundlePath + '"', {
+      stdio: 'pipe', timeout: 120000
+    });
+    const minSize = (fs.statSync(bundlePath).size / 1024).toFixed(1);
+    console.log('  → JS post-minify: ' + minSize + ' KB');
+  } catch (e) {
+    console.warn('  ⚠ Terser failed, using unminified bundle: ' + e.message);
+  }
 
   // 4. Copy subject files (loaded dynamically)
   const subjectsDir = path.join(DIST, 'src/modules/question-bank/subjects');
@@ -221,13 +253,17 @@ function build() {
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f172a">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' http: https: ws: wss:; base-uri 'self'; form-action 'self';">
+<link rel="preconnect" href="https://medcard-api.3280039592.workers.dev">
+<link rel="dns-prefetch" href="https://medcard-api.3280039592.workers.dev">
+<link rel="preload" href="bundle.js?v=${VERSION}" as="script">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https://medcard-api.3280039592.workers.dev ws: wss:; base-uri 'self'; form-action 'self';">
 <title>MediCard 医杀</title>
 <style>
 ${css}
 </style>
 </head>
 <body>
+<div id="app-loading" style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0f172a;color:#94a3b8;font-family:system-ui,-apple-system,sans-serif;font-size:18px;letter-spacing:1px;">MediCard 医杀 加载中...</div>
 <div id="app"></div>
 <script defer src="bundle.js?v=${VERSION}"></script>
 </body>
