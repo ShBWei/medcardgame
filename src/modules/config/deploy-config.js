@@ -38,7 +38,7 @@
     apiServer: (function() {
       var hn = window.location.hostname;
       if (hn.includes('pages.dev') || hn.includes('github.io')) {
-        return 'http://134.175.165.223';
+        return 'https://134.175.165.223';
       }
       return '';  // same-origin for local/server modes
     })(),
@@ -53,7 +53,7 @@
     signalingServer: (function() {
       var hn = window.location.hostname;
       if (hn.includes('pages.dev') || hn.includes('github.io')) {
-        return 'ws://134.175.165.223';
+        return 'wss://134.175.165.223';
       }
       return null;
     })(),
