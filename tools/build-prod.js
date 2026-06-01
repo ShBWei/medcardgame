@@ -1,7 +1,8 @@
 /**
  * MediCard — Production Build
- * Bundles 56 JS files → 1 bundle.js + inlines 22 CSS files → <style>
- * Result: 4 HTTP requests instead of 78
+ * Code-split: bundle-core.js (auth/title, ~80 KB min) + bundle-game.js (rest, ~560 KB min)
+ * Initial load: 1 HTML + 1 core JS = 2 requests (vs 78 before)
+ * Game bundle loads on demand when user enters battle/study/multiplayer/etc.
  */
 const fs = require('fs');
 const path = require('path');
@@ -10,7 +11,7 @@ const ROOT = path.join(__dirname, '..');
 const SRC = path.join(ROOT, 'src');
 const DIST = path.join(ROOT, 'dist');
 
-const VERSION = '6.5.1';
+const VERSION = '6.5.2';
 
 // ── CSS files in dependency order (from index.html) ──
 const CSS_FILES = [
@@ -39,21 +40,27 @@ const CSS_FILES = [
   'screens/screen-sr.css',
 ];
 
-// ── JS files in dependency order (from index.html) ──
-const JS_FILES = [
-  // External libs (must load first)
+// ── Core JS: auth, title, subject selection — loaded immediately ──
+const CORE_JS_FILES = [
   '../lib/lz-string.min.js',
-  '../lib/peerjs.min.js',
-  // Config & security
   'config/deploy-config.js',
   'security/crypto-utils.js',
   'security/frontend-security.js',
   'cloud-api.js',
   'storage/local-storage.js',
-  // Question bank
   'question-bank/question-loader.js',
+  'game-core/game-state.js',
+  'ui-system/screen-auth.js',
+  'ui-system/screen-title.js',
+  'ui-system/screen-subject.js',
+  'audio-system/audio-generator.js',
+  'main.js',
+];
+
+// ── Game JS: battle, multiplayer, study, fastlearn — loaded on demand ──
+const GAME_JS_FILES = [
+  '../lib/peerjs.min.js',
   'question-bank/wrong-question-book.js',
-  // FastLearn (must load before UI screens)
   'fastlearn/fastlearn-storage.js',
   'fastlearn/fastlearn-core.js',
   'fastlearn/fastlearn-prereq.js',
@@ -61,26 +68,19 @@ const JS_FILES = [
   'fastlearn/dual-track-memory.js',
   'fastlearn/interleaving-scheduler.js',
   'fastlearn/fastlearn-cramming.js',
-  // UI screens (early, referenced by others)
   'ui-system/screen-notebook.js',
   'ui-system/screen-study.js',
   'ui-system/screen-fastlearn.js',
-  // Game core
   'game-core/resource-system.js',
   'game-core/victory-condition.js',
   'game-core/turn-system.js',
-  'game-core/game-state.js',
-  // Timer & debug
   'timer/timer-calculator.js',
   'debug/battle-logger.js',
-  // Card system
   'card-system/card-data.js',
   'card-system/card-effects.js',
   'card-system/card-visuals.js',
-  // Identity system
   'identity-system/identity-data.js',
   'identity-system/identity-skills.js',
-  // UI components
   'ui-system/components/timer-component.js',
   'ui-system/components/player-panel.js',
   'ui-system/components/question-popup.js',
@@ -88,32 +88,20 @@ const JS_FILES = [
   'ui-system/components/target-strategies/multiple.js',
   'ui-system/components/target-selector.js',
   'ui-system/components/mp-attack-resolver.js',
-  // Network
   'network/sync-protocol.js',
   'network/room-manager.js',
   'network/relay-transport.js',
   'network/p2p-host.js',
   'network/p2p-client.js',
   'network/multiplayer-adapter.js',
-  // UI screens (rest)
-  'ui-system/screen-auth.js',
-  'ui-system/screen-title.js',
-  'ui-system/screen-subject.js',
   'ui-system/screen-lobby.js',
   'ui-system/screen-battle.js',
   'ui-system/screen-result.js',
-  // Audio
-  'audio-system/audio-generator.js',
-  // Community
   'community/community-core.js',
   'community/community-leaderboard.js',
   'community/community-questions.js',
   'community/community-feedback.js',
-  // Speed engine
   '../speed-engine.js',
-  // Main bootstrap
-  'main.js',
-  // Stress relief (standalone, last)
   'ui-system/screen-sr.js',
 ];
 
@@ -146,34 +134,46 @@ function readCSS() {
   return css;
 }
 
-function readJS() {
-  // Wrap in IIFE closure to protect global scope
-  let js = '/* MediCard bundled JS v' + VERSION + ' */\n';
+function resolvePath(file) {
+  if (file.startsWith('../lib/')) return path.join(SRC, file.replace('../lib/', 'lib/'));
+  if (file.startsWith('../speed-engine')) return path.join(SRC, 'modules/speed-engine.js');
+  return path.join(SRC, 'modules', file);
+}
+
+function readJSBundle(fileList, label) {
+  let js = '/* MediCard ' + label + ' v' + VERSION + ' */\n';
   js += '(function(){\n';
-  let total = 0;
-  for (const file of JS_FILES) {
-    // lib files are relative to SRC, module files are relative to SRC/modules
-    let fp;
-    if (file.startsWith('../lib/')) {
-      fp = path.join(SRC, file.replace('../lib/', 'lib/'));
-    } else if (file.startsWith('../speed-engine')) {
-      fp = path.join(SRC, 'modules/speed-engine.js');
-    } else {
-      fp = path.join(SRC, 'modules', file);
-    }
+  let total = 0, skipped = 0;
+  for (const file of fileList) {
+    const fp = resolvePath(file);
     if (fs.existsSync(fp)) {
       let content = fs.readFileSync(fp, 'utf8');
-      // Remove sourceMappingURL references
       content = content.replace(/\/\/# sourceMappingURL=.*$/gm, '');
       js += '/* ' + file + ' */\n' + content + '\n';
       total++;
     } else {
       console.warn('  SKIP (not found): ' + file + ' (' + fp + ')');
+      skipped++;
     }
   }
   js += '})();\n';
-  console.log('  JS:  ' + total + '/' + JS_FILES.length + ' files bundled');
+  console.log('  ' + label + ': ' + total + '/' + fileList.length + ' files');
   return js;
+}
+
+function minifyJS(filePath, label) {
+  const preSize = (fs.statSync(filePath).size / 1024).toFixed(1);
+  console.log('  ' + label + ' pre-minify: ' + preSize + ' KB');
+  try {
+    const { execSync } = require('child_process');
+    execSync('npx --yes terser "' + filePath + '" -c -m -o "' + filePath + '"', {
+      stdio: 'pipe', timeout: 120000
+    });
+    const postSize = (fs.statSync(filePath).size / 1024).toFixed(1);
+    console.log('  ' + label + ' post-minify: ' + postSize + ' KB');
+  } catch (e) {
+    console.warn('  ⚠ Terser failed for ' + label + ': ' + e.message);
+  }
 }
 
 function minifyCSS(css) {
@@ -208,30 +208,21 @@ function build() {
   const cssSaved = rawCSS.length > 0 ? Math.round((1 - Buffer.byteLength(css, 'utf8') / Buffer.byteLength(rawCSS, 'utf8')) * 100) : 0;
   console.log('  → CSS bundle: ' + cssSize + ' KB (saved ' + cssSaved + '%)\n');
 
-  // 2. Bundle JS
-  const js = readJS();
-  const jsSize = (Buffer.byteLength(js, 'utf8') / 1024).toFixed(1);
-  console.log('  → JS bundle: ' + jsSize + ' KB\n');
+  // 2. Bundle core JS (auth + title + subject — loaded immediately)
+  const coreJs = readJSBundle(CORE_JS_FILES, 'core');
+  const gameJs = readJSBundle(GAME_JS_FILES, 'game');
 
-  // 3. Write bundle.js (unminified first, then minify)
-  const bundlePath = path.join(DIST, 'bundle.js');
-  fs.writeFileSync(bundlePath, js, 'utf8');
-  console.log('  → JS pre-minify: ' + (Buffer.byteLength(js, 'utf8') / 1024).toFixed(1) + ' KB');
+  // 3. Write & minify bundle-core.js
+  const corePath = path.join(DIST, 'bundle-core.js');
+  fs.writeFileSync(corePath, coreJs, 'utf8');
+  minifyJS(corePath, 'core');
 
-  // Minify with terser
-  try {
-    const { execSync } = require('child_process');
-    console.log('  → Minifying with terser...');
-    execSync('npx --yes terser "' + bundlePath + '" -c -m -o "' + bundlePath + '"', {
-      stdio: 'pipe', timeout: 120000
-    });
-    const minSize = (fs.statSync(bundlePath).size / 1024).toFixed(1);
-    console.log('  → JS post-minify: ' + minSize + ' KB');
-  } catch (e) {
-    console.warn('  ⚠ Terser failed, using unminified bundle: ' + e.message);
-  }
+  // 4. Write & minify bundle-game.js
+  const gamePath = path.join(DIST, 'bundle-game.js');
+  fs.writeFileSync(gamePath, gameJs, 'utf8');
+  minifyJS(gamePath, 'game');
 
-  // 4. Copy subject files (loaded dynamically)
+  // 5. Copy subject files (loaded dynamically)
   const subjectsDir = path.join(DIST, 'src/modules/question-bank/subjects');
   fs.mkdirSync(subjectsDir, { recursive: true });
   for (const f of SUBJECT_FILES) {
@@ -240,9 +231,9 @@ function build() {
       fs.copyFileSync(src, path.join(subjectsDir, f));
     }
   }
-  console.log('  Subjects: ' + SUBJECT_FILES.length + ' files copied\n');
+  console.log('\n  Subjects: ' + SUBJECT_FILES.length + ' files copied\n');
 
-  // 5. Write index.html
+  // 6. Write index.html — only preloads core bundle; game bundle loads on demand
   const html = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -253,7 +244,7 @@ function build() {
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f172a">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="preload" href="bundle.js?v=${VERSION}" as="script">
+<link rel="preload" href="bundle-core.js?v=${VERSION}" as="script">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws: wss:; base-uri 'self'; form-action 'self';">
 <title>MediCard 医杀</title>
 <style>
@@ -263,7 +254,7 @@ ${css}
 <body>
 <div id="app-loading" style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0f172a;color:#94a3b8;font-family:system-ui,-apple-system,sans-serif;font-size:18px;letter-spacing:1px;">MediCard 医杀 加载中...</div>
 <div id="app"></div>
-<script defer src="bundle.js?v=${VERSION}"></script>
+<script defer src="bundle-core.js?v=${VERSION}"></script>
 </body>
 </html>`;
 
@@ -271,7 +262,7 @@ ${css}
   const htmlSize = (Buffer.byteLength(html, 'utf8') / 1024).toFixed(1);
   console.log('  → index.html: ' + htmlSize + ' KB');
 
-  // 6. Copy Cloudflare configs
+  // 7. Copy Cloudflare configs
   for (const f of ['_headers', '_redirects', '_routes.json']) {
     const src = path.join(ROOT, f);
     if (fs.existsSync(src)) {
@@ -280,7 +271,7 @@ ${css}
   }
   console.log('  Config: _headers + _redirects + _routes.json copied');
 
-  // 7. Copy favicon
+  // 8. Copy favicon
   const faviconSrc = path.join(ROOT, 'favicon.svg');
   if (fs.existsSync(faviconSrc)) {
     fs.copyFileSync(faviconSrc, path.join(DIST, 'favicon.svg'));
@@ -288,14 +279,14 @@ ${css}
   }
 
   console.log('\n✅ Build complete → dist/');
-  console.log('   Deploy: dist/ directory to Cloudflare Pages');
-  console.log('   HTTP requests: 1 HTML + 1 JS = 2 total (vs 78 before)\n');
+  console.log('   Initial load: 1 HTML + 1 core JS = 2 requests');
+  console.log('   Game bundle loads on demand when entering battle/study/multiplayer\n');
 
-  // Also output to project root so the local server can serve prod builds
-  fs.copyFileSync(path.join(DIST, 'bundle.js'), path.join(ROOT, 'bundle.js'));
+  // Also output to project root for local server
+  fs.copyFileSync(path.join(DIST, 'bundle-core.js'), path.join(ROOT, 'bundle-core.js'));
+  fs.copyFileSync(path.join(DIST, 'bundle-game.js'), path.join(ROOT, 'bundle-game.js'));
   fs.writeFileSync(path.join(ROOT, 'index.prod.html'), html, 'utf8');
-  console.log('   Root: bundle.js + index.prod.html written');
-  console.log('   Server will auto-detect and serve production version');
+  console.log('   Root: bundle-core.js + bundle-game.js + index.prod.html written');
 }
 
 build();

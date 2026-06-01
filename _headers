@@ -6,8 +6,10 @@
   Cache-Control: no-cache, must-revalidate
   X-Robots-Tag: index, follow
 
-# ── Production bundle: cache 1 week (versioned via ?v= query string) ──
-/bundle.js
+# ── Production bundles: cache 1 week (versioned via ?v= query string) ──
+/bundle-core.js
+  Cache-Control: public, max-age=604800
+/bundle-game.js
   Cache-Control: public, max-age=604800
 
 # ── Subject data files: cache 1 month (rarely change, loaded dynamically) ──

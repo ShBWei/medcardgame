@@ -14,8 +14,8 @@ const { WebSocketServer } = require('ws');
 const PORT = process.env.PORT || 8080;
 const PEER_PORT = process.env.PEER_PORT || 9000;
 const ROOT = __dirname;
-// Serve production build when bundle.js exists in project root
-const USE_PROD = fs.existsSync(path.join(__dirname, 'bundle.js'));
+// Serve production build when bundle-core.js exists in project root
+const USE_PROD = fs.existsSync(path.join(__dirname, 'bundle-core.js'));
 
 // ── Security constants ────────────────────────────────────────
 const MAX_REQ_PER_MIN = 120;        // per-IP rate limit

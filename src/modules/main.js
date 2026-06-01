@@ -6,6 +6,39 @@
   var MediCard = window.MediCard || {};
 
   /**
+   * Lazy-load the game bundle (battle, multiplayer, study, etc.)
+   * Called on first navigation to any game screen.
+   */
+  MediCard._gameBundleReady = false;
+  MediCard._gameBundleLoading = false;
+  MediCard._gameBundleQueue = [];
+
+  MediCard._ensureGameBundle = function(callback) {
+    if (MediCard._gameBundleReady) { callback(); return; }
+    MediCard._gameBundleQueue.push(callback);
+    if (MediCard._gameBundleLoading) return;
+    MediCard._gameBundleLoading = true;
+
+    var script = document.createElement('script');
+    script.src = 'bundle-game.js?v=' + (MediCard.Config && MediCard.Config.version || '6.5.2');
+    script.onload = function() {
+      MediCard._gameBundleReady = true;
+      MediCard._gameBundleLoading = false;
+      var q = MediCard._gameBundleQueue;
+      MediCard._gameBundleQueue = [];
+      for (var i = 0; i < q.length; i++) q[i]();
+    };
+    script.onerror = function() {
+      MediCard._gameBundleLoading = false;
+      var q = MediCard._gameBundleQueue;
+      MediCard._gameBundleQueue = [];
+      for (var i = 0; i < q.length; i++) q[i]();
+      _showError();
+    };
+    document.head.appendChild(script);
+  };
+
+  /**
    * UI Manager — screen switching and initialization
    */
   MediCard.UI = {
@@ -54,6 +87,19 @@
         screen.classList.add('screen-transition');
       }
 
+      // Game screens need the game bundle — load it on demand
+      var GAME_SCREENS = ['lobby', 'playing', 'result', 'study', 'fastlearn', 'notebook'];
+      var self = this;
+      if (GAME_SCREENS.indexOf(name) >= 0) {
+        MediCard._ensureGameBundle(function() {
+          self._renderScreen(name);
+        });
+      } else {
+        this._renderScreen(name);
+      }
+    },
+
+    _renderScreen(name) {
       // Render screen content
       try {
         switch (name) {
