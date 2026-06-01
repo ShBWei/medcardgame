@@ -43,19 +43,54 @@
       this._chapterProgress = MediCard.Storage.getChapterProgress ? MediCard.Storage.getChapterProgress() : {};
 
       // Re-apply saved chapter filters to QuestionLoader (in case they were cleared by page reload or other flows)
+      // Works even when subject data isn't in memory yet — setChapterFilter just stores names
       if (MediCard.QuestionLoader) {
         MediCard.QuestionLoader.clearChapterFilters();
         for (var subj in this._chapterSelections) {
           var chSet = this._chapterSelections[subj];
           if (!chSet || chSet.size === 0) continue;
           var allChapters = MediCard.QuestionLoader.getChapters(subj);
-          if (allChapters.length > 0 && chSet.size < allChapters.length) {
+          // Apply filter from saved selections: always apply unless we know it's a full selection
+          if (allChapters.length === 0 || chSet.size < allChapters.length) {
             MediCard.QuestionLoader.setChapterFilter(subj, Array.from(chSet));
           }
         }
       }
 
       this._renderContent(screen);
+
+      // Poll for async subject data loading — re-render when data arrives so chapter pills appear
+      if (MediCard.QuestionLoader) {
+        var self = this;
+        var allSubjsArr = MediCard.Config.subjectCategories[0].subjects;
+        var pending = [];
+        for (var si2 = 0; si2 < allSubjsArr.length; si2++) {
+          var s = allSubjsArr[si2];
+          if (self._selected.has(s) && !MediCard.QuestionLoader._cache[s]) {
+            pending.push(s);
+            MediCard.QuestionLoader.loadSubject(s);
+          }
+        }
+        if (pending.length > 0) {
+          var checks = 0;
+          var pollId = setInterval(function() {
+            checks++;
+            var anyLoaded = false;
+            for (var pi = 0; pi < pending.length; pi++) {
+              if (MediCard.QuestionLoader._cache[pending[pi]]) { anyLoaded = true; break; }
+            }
+            if (anyLoaded) {
+              var scr = document.getElementById('screen-subject');
+              if (scr && scr.classList.contains('active')) self._renderContent(scr);
+            }
+            var allDone = true;
+            for (var pi2 = 0; pi2 < pending.length; pi2++) {
+              if (!MediCard.QuestionLoader._cache[pending[pi2]]) { allDone = false; break; }
+            }
+            if (allDone || checks >= 30) clearInterval(pollId);
+          }, 150);
+        }
+      }
     },
 
     _renderContent(screen) {
@@ -309,17 +344,12 @@
           var chSet = self._chapterSelections[subj];
           if (!chSet || chSet.size === 0) continue;
           var allChapters = MediCard.QuestionLoader.getChapters(subj);
-          // Only apply filter if not all chapters are selected
-          if (allChapters.length > 0 && chSet.size < allChapters.length) {
-            var chArr = Array.from(chSet);
+          var chArr = Array.from(chSet);
+          // Apply filter: always set unless data is loaded AND it's a full selection
+          if (allChapters.length === 0 || chSet.size < allChapters.length) {
             MediCard.QuestionLoader.setChapterFilter(subj, chArr);
-            chapterMap[subj] = chArr;
-          } else if (allChapters.length === 0) {
-            // No chapter data — no filter needed
-          } else {
-            // All chapters selected — store for persistence but don't filter
-            chapterMap[subj] = Array.from(chSet);
           }
+          chapterMap[subj] = chArr;
           // Track study progress: record sessions per chapter
           var subjProg = self._chapterProgress[subj] || {};
           chSet.forEach(function(ch) {
