@@ -374,6 +374,9 @@
         // Persist expanded state
         MediCard.Storage.set('chapter_expanded', self._chapterExpanded);
 
+        console.log('[Subject] Confirm: _selectedSubjects=' + JSON.stringify(Array.from(MediCard.QuestionLoader._selectedSubjects)));
+        console.log('[Subject] Confirm: _chapterFilters=' + JSON.stringify(MediCard.QuestionLoader._chapterFilters));
+
         if (self._forMultiplayer) {
           // Go to lobby for online 1v1
           self._forMultiplayer = false;

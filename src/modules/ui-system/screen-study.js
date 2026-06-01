@@ -564,17 +564,12 @@
     _progress: {},
 
     _loadSubjectProgress: function() {
-      try {
-        var raw = localStorage.getItem('medicard_study_progress');
-        if (raw) this._progress = JSON.parse(raw);
-      } catch(e) { this._progress = {}; }
+      this._progress = MediCard.Storage.get('study_progress', {});
       if (!this._progress || typeof this._progress !== 'object') this._progress = {};
     },
 
     _saveSubjectProgress: function() {
-      try {
-        localStorage.setItem('medicard_study_progress', JSON.stringify(this._progress));
-      } catch(e) {}
+      MediCard.Storage.set('study_progress', this._progress);
       // Also sync to server
       this._syncProgressToServer();
     },

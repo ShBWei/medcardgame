@@ -330,8 +330,11 @@
       if (questions && questions.length && filter && filter.length > 0) {
         var filterSet = {};
         for (var fi = 0; fi < filter.length; fi++) filterSet[filter[fi]] = true;
-        return questions.filter(function(q) { return filterSet[q.chapter]; });
+        var filtered = questions.filter(function(q) { return filterSet[q.chapter]; });
+        console.log('[QL] getSubject(' + subjectId + '): ' + questions.length + ' → ' + filtered.length + ' questions (filter: ' + filter.join(',') + ')');
+        return filtered;
       }
+      console.log('[QL] getSubject(' + subjectId + '): no filter, ' + (questions ? questions.length : 0) + ' questions');
       return questions;
     },
 

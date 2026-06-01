@@ -177,6 +177,8 @@
 
     /** Second half of init — runs after subject data is loaded */
     _finishInit: function(gs, selectedIds) {
+      console.log('[Battle] _finishInit: selectedIds=' + JSON.stringify(selectedIds));
+      console.log('[Battle] _finishInit: _chapterFilters=' + JSON.stringify(MediCard.QuestionLoader._chapterFilters));
       var deck = MediCard.CardData.generateFullDeck(selectedIds, MediCard.QuestionLoader);
       if (!deck || deck.length === 0) {
         deck = MediCard.QuestionLoader.generateDeck(72);

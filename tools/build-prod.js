@@ -11,7 +11,7 @@ const ROOT = path.join(__dirname, '..');
 const SRC = path.join(ROOT, 'src');
 const DIST = path.join(ROOT, 'dist');
 
-const VERSION = '6.5.2';
+const VERSION = '6.5.3';
 
 // ── CSS files in dependency order (from index.html) ──
 const CSS_FILES = [
