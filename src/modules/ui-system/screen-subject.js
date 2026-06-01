@@ -42,6 +42,19 @@
       // Load chapter study progress
       this._chapterProgress = MediCard.Storage.getChapterProgress ? MediCard.Storage.getChapterProgress() : {};
 
+      // Re-apply saved chapter filters to QuestionLoader (in case they were cleared by page reload or other flows)
+      if (MediCard.QuestionLoader) {
+        MediCard.QuestionLoader.clearChapterFilters();
+        for (var subj in this._chapterSelections) {
+          var chSet = this._chapterSelections[subj];
+          if (!chSet || chSet.size === 0) continue;
+          var allChapters = MediCard.QuestionLoader.getChapters(subj);
+          if (allChapters.length > 0 && chSet.size < allChapters.length) {
+            MediCard.QuestionLoader.setChapterFilter(subj, Array.from(chSet));
+          }
+        }
+      }
+
       this._renderContent(screen);
     },
 

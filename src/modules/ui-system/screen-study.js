@@ -245,25 +245,31 @@
 
     _chapterPickerSelections: {}, // { chapterName: true } during picker interaction
 
-    /** Save chapter selections to localStorage (per-subject). */
+    /** Save chapter selections via MediCard.Storage (per-subject). */
     _saveChapterSelections: function(subjectId) {
       try {
-        var all = {};
-        var raw = localStorage.getItem('medicard_chapter_selections');
-        if (raw) { try { all = JSON.parse(raw); } catch(e) { all = {}; } }
+        var all = MediCard.Storage.get('study_chapter_selections', {});
         all[subjectId] = this._chapterPickerSelections;
-        localStorage.setItem('medicard_chapter_selections', JSON.stringify(all));
+        MediCard.Storage.set('study_chapter_selections', all);
+        // Clean up old raw-localStorage key if it exists
+        try { localStorage.removeItem('medicard_chapter_selections'); } catch(e) {}
       } catch(e) {}
     },
 
     /** Load previous chapter selections for a subject. Returns null if none saved. */
     _loadChapterSelections: function(subjectId) {
       try {
-        var raw = localStorage.getItem('medicard_chapter_selections');
-        if (raw) {
-          var all = JSON.parse(raw);
-          return all[subjectId] || null;
+        // Migrate from old raw-localStorage key (one-time)
+        var oldRaw = localStorage.getItem('medicard_chapter_selections');
+        if (oldRaw) {
+          try {
+            var oldAll = JSON.parse(oldRaw);
+            MediCard.Storage.set('study_chapter_selections', oldAll);
+            localStorage.removeItem('medicard_chapter_selections');
+          } catch(e) {}
         }
+        var all = MediCard.Storage.get('study_chapter_selections', {});
+        return all[subjectId] || null;
       } catch(e) {}
       return null;
     },
@@ -484,11 +490,14 @@
     /** Go back to subject list */
     goBack: function() {
       this._stopTimer();
+      var prevSubject = this._currentSubject;
       this._currentSubject = null;
       this._questions = [];
       this._answered = false;
-      // Clear chapter filters when returning to subject list
-      if (MediCard.QuestionLoader) MediCard.QuestionLoader.clearChapterFilters();
+      // Clear only the previous subject's chapter filter (not all filters set by other screens)
+      if (MediCard.QuestionLoader && prevSubject) {
+        delete MediCard.QuestionLoader._chapterFilters[prevSubject];
+      }
       // If in fastlearn tab, switch back to practice
       if (this._currentTab === 'fastlearn') {
         this._currentTab = 'practice';

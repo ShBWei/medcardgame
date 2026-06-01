@@ -191,6 +191,9 @@
       // Migration: removed destructive clear() that wiped all user accounts.
       // Data validation is handled by individual getter methods (getUsers, getGameStats, etc.)
       MediCard.Storage.set('_v2_migrated', true);
+      // Hide loading skeleton once app is ready
+      var loading = document.getElementById('app-loading');
+      if (loading) loading.style.display = 'none';
       MediCard.UI.init();
     } catch (e) {
       _showError();
