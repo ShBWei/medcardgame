@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Diagnostic Test</title>
+<style>
+body { background: #0f172a; color: #f1f5f9; font-family: sans-serif; padding: 40px; }
+.btn { padding: 16px 32px; margin: 10px; font-size: 18px; cursor: pointer; border: 2px solid #06b6d4; background: #1e293b; color: #fff; border-radius: 8px; }
+.btn:active { background: #06b6d4; }
+#log { margin-top: 20px; padding: 16px; background: #1e293b; border-radius: 8px; font-family: monospace; font-size: 13px; white-space: pre-wrap; max-height: 400px; overflow-y: auto; }
+.ok { color: #10b981; }
+.fail { color: #ef4444; }
+</style>
+</head>
+<body>
+<h1>Diagnostic Page</h1>
+
+<h2>1. Basic click test (no JS needed)</h2>
+<button class="btn" onclick="document.getElementById('basic-result').textContent='CLICKED! '+new Date().toISOString()">Click me (inline onclick)</button>
+<div id="basic-result" style="margin:10px;color:#fbbf24;">Not clicked yet</div>
+
+<h2>2. addEventListener click test</h2>
+<button class="btn" id="js-btn">Click me (addEventListener)</button>
+<div id="js-result" style="margin:10px;color:#fbbf24;">Not clicked yet</div>
+
+<h2>3. MediCard module test</h2>
+<button class="btn" id="medicard-btn" onclick="testMedicard()">Test MediCard modules</button>
+<div id="medicard-result" style="margin:10px;color:#fbbf24;">Not tested yet</div>
+
+<div id="log"></div>
+
+<script>
+var logEl = document.getElementById('log');
+function log(msg, cls) {
+  var line = document.createElement('div');
+  line.className = cls || '';
+  line.textContent = '[' + new Date().toISOString().slice(11,19) + '] ' + msg;
+  logEl.appendChild(line);
+  console.log(msg);
+}
+
+// Test 2: addEventListener
+document.getElementById('js-btn').addEventListener('click', function() {
+  document.getElementById('js-result').textContent = 'CLICKED! ' + new Date().toISOString();
+  log('addEventListener click works', 'ok');
+});
+log('addEventListener registered on js-btn', 'ok');
+
+// Test 3: MediCard
+window.testMedicard = function() {
+  var result = document.getElementById('medicard-result');
+  if (!window.MediCard) {
+    result.innerHTML = '<span class="fail">window.MediCard is UNDEFINED — scripts not loaded!</span>';
+    log('FAIL: window.MediCard is undefined', 'fail');
+    return;
+  }
+  var mods = ['Config','Storage','QuestionBank','QuestionLoader','GameState','ScreenTitle','ScreenSubject','ScreenBattle','Audio','CardEffects','Resources','Victory'];
+  var status = [];
+  mods.forEach(function(m) {
+    if (window.MediCard[m]) {
+      status.push('<span class="ok">' + m + ' ✓</span>');
+    } else {
+      status.push('<span class="fail">' + m + ' ✗</span>');
+    }
+  });
+  result.innerHTML = status.join('<br>');
+  log('MediCard modules checked: ' + mods.filter(function(m){return !!window.MediCard[m];}).length + '/' + mods.length + ' loaded');
+};
+
+// Check if MediCard loads
+window.addEventListener('load', function() {
+  log('Window loaded. MediCard present: ' + !!window.MediCard);
+  if (window.MediCard) {
+    log('MediCard keys: ' + Object.keys(window.MediCard).join(', '));
+  }
+});
+
+log('Diagnostic page ready');
+</script>
+</body>
+</html>

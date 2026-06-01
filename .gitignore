@@ -1,46 +1,18 @@
 node_modules/
 dist/
-production/session-logs/
 *.pdf
-.DS_Store
-Thumbs.db
 *.log
+server.log
 
-# Raw question bank source (already extracted to src/)
-*题库*.txt
+# Build artifacts (generated)
+bundle.js
+index.prod.html
 
-# Question bank subject files (required for Cloudflare Pages)
-# src/modules/question-bank/subjects/*.js — UNIGNORED: needed for static deployment
+# Cloudflare temp
+.wrangler/
 
-# Dev tools (only keep build.js)
-tools/
-!tools/build.js
-
-# Server config / deploy
-config/
-data/
-deploy.sh
-ecosystem.config.js
-medicard
-nginx-medicard.conf
-
-# Lint / format config
-.prettierrc
-.prettierignore
-eslint.config.mjs
-
-# Tests
-tests/
-vitest.config.js
-
-# Temp/test pages
-diag.html
-peerjs-test.html
-
-# Project audit / temporary files
-PROJECT_AUDIT_REPORT.md
-non-essential-backup.tar.gz
-*.tar.gz
+# Claude Code
+.claude/
 
 # IDE
 .vscode/
@@ -50,18 +22,17 @@ non-essential-backup.tar.gz
 .DS_Store
 Thumbs.db
 
-# Logs
-*.log
-server.log
-
-# Claude Code
-.claude/
-
-# Build artifacts
-bundle.js
-index.prod.html
-
 # Environment
 .env
 .env.local
 .env.production
+
+# Archives / backups
+*.tar.gz
+non-essential-backup.tar.gz
+
+# Temp / AI-generated
+Q_learn.md
+PROJECT_AUDIT_REPORT.md
+V6.5_CHANGELOG.md
+production/

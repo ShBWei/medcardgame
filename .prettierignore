@@ -1,0 +1,7 @@
+node_modules
+dist
+build
+.claude
+*.min.js
+coverage
+src/modules/question-bank/subjects
