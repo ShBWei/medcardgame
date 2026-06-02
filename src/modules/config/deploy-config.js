@@ -7,7 +7,7 @@
   var MediCard = window.MediCard || {};
 
   MediCard.Config = {
-    version: '6.5.4',
+    version: '6.5.5',
     appName: 'MediCard 医杀',
 
     get mode() {

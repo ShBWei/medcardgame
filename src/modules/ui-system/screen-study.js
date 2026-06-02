@@ -246,31 +246,39 @@
 
     _chapterPickerSelections: {}, // { chapterName: true } during picker interaction
 
-    /** Save chapter selections via MediCard.Storage (per-subject). */
+    /** Save chapter selections as an array of selected chapter names. */
     _saveChapterSelections: function(subjectId) {
       try {
+        var selected = [];
+        var sel = this._chapterPickerSelections;
+        for (var ch in sel) {
+          if (sel.hasOwnProperty(ch) && sel[ch]) selected.push(ch);
+        }
         var all = MediCard.Storage.get('study_chapter_selections', {});
-        all[subjectId] = this._chapterPickerSelections;
+        all[subjectId] = selected;
         MediCard.Storage.set('study_chapter_selections', all);
-        // Clean up old raw-localStorage key if it exists
         try { localStorage.removeItem('medicard_chapter_selections'); } catch(e) {}
       } catch(e) {}
     },
 
-    /** Load previous chapter selections for a subject. Returns null if none saved. */
+    /** Load previous chapter selections for a subject. Returns array of names or null. */
     _loadChapterSelections: function(subjectId) {
       try {
-        // Migrate from old raw-localStorage key (one-time)
-        var oldRaw = localStorage.getItem('medicard_chapter_selections');
-        if (oldRaw) {
-          try {
-            var oldAll = JSON.parse(oldRaw);
-            MediCard.Storage.set('study_chapter_selections', oldAll);
-            localStorage.removeItem('medicard_chapter_selections');
-          } catch(e) {}
-        }
         var all = MediCard.Storage.get('study_chapter_selections', {});
-        return all[subjectId] || null;
+        var val = all[subjectId];
+        if (!val) return null;
+        // Migrate from old boolean-object format: {ch1: true, ch2: false, ...}
+        if (!Array.isArray(val) && typeof val === 'object') {
+          var arr = [];
+          for (var ch in val) {
+            if (val.hasOwnProperty(ch) && val[ch]) arr.push(ch);
+          }
+          // Save back in new format
+          all[subjectId] = arr;
+          MediCard.Storage.set('study_chapter_selections', all);
+          return arr;
+        }
+        return Array.isArray(val) ? val : null;
       } catch(e) {}
       return null;
     },
@@ -314,6 +322,12 @@
       var subjectName = m.name || subjectId;
       var icon = m.icon || '📚';
 
+      // Safety net: clear any stale filter for this subject before showing picker
+      if (MediCard.QuestionLoader && MediCard.QuestionLoader._chapterFilters[subjectId]) {
+        console.log('[Study] _showChapterPicker(' + subjectId + '): clearing stale filter: ' + JSON.stringify(MediCard.QuestionLoader._chapterFilters[subjectId]));
+        delete MediCard.QuestionLoader._chapterFilters[subjectId];
+      }
+
       // Count questions per chapter
       var questions = MediCard.QuestionLoader._getSubjectRaw(subjectId) || [];
       var chapterCounts = {};
@@ -322,18 +336,23 @@
         if (ch) chapterCounts[ch] = (chapterCounts[ch] || 0) + 1;
       }
 
-      // Initialize all chapters as selected, then restore saved preferences
+      // Restore saved preferences: init all as false, then set saved to true.
+      // If no saved data, default to all selected.
+      var savedArr = this._loadChapterSelections(subjectId);
+      console.log('[Study] _showChapterPicker(' + subjectId + '): ' + chapters.length + ' chapters, savedSelections=' + (savedArr ? JSON.stringify(savedArr) : 'none'));
       this._chapterPickerSelections = {};
-      for (var c = 0; c < chapters.length; c++) {
-        this._chapterPickerSelections[chapters[c]] = true;
-      }
-      var saved = this._loadChapterSelections(subjectId);
-      console.log('[Study] _showChapterPicker(' + subjectId + '): ' + chapters.length + ' chapters, savedSelections=' + (saved ? JSON.stringify(saved) : 'none'));
-      if (saved) {
-        for (var ch in saved) {
-          if (saved.hasOwnProperty(ch) && this._chapterPickerSelections.hasOwnProperty(ch)) {
-            this._chapterPickerSelections[ch] = saved[ch];
-          }
+      if (savedArr && savedArr.length > 0) {
+        // Restore only the saved selections
+        for (var c = 0; c < chapters.length; c++) {
+          this._chapterPickerSelections[chapters[c]] = false;
+        }
+        for (var si = 0; si < savedArr.length; si++) {
+          this._chapterPickerSelections[savedArr[si]] = true;
+        }
+      } else {
+        // No saved data — default to all selected
+        for (var c2 = 0; c2 < chapters.length; c2++) {
+          this._chapterPickerSelections[chapters[c2]] = true;
         }
       }
       console.log('[Study] _showChapterPicker(' + subjectId + '): final selections=' + JSON.stringify(this._chapterPickerSelections));
