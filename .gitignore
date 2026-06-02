@@ -6,6 +6,8 @@ server.log
 
 # Build artifacts (generated)
 bundle.js
+bundle-core.js
+bundle-game.js
 index.prod.html
 
 # Cloudflare temp

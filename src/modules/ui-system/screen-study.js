@@ -31,6 +31,7 @@
     // ── Public API ──
 
     render: function() {
+      console.log('[Study] render: tab=' + (this._currentTab || 'practice') + ', filters=' + JSON.stringify(MediCard.QuestionLoader ? MediCard.QuestionLoader._chapterFilters : {}));
       this._loadedMap = {}; // reset for fresh preload check
       this._loadTheme();
       this._loadMode();
@@ -134,7 +135,7 @@
     _isSubjectLoaded: function(subjectId) {
       var loader = MediCard.QuestionLoader;
       if (!loader) return false;
-      var qs = loader.getSubject(subjectId);
+      var qs = loader._getSubjectRaw(subjectId);
       return qs && qs.length > 0;
     },
 
@@ -277,14 +278,16 @@
     /** Check if subject has chapters and show picker or proceed directly */
     _maybeShowChapterPicker: function(subjectId) {
       var loader = MediCard.QuestionLoader;
-      if (!loader) { this.startSubject(subjectId); return; }
+      if (!loader) { console.log('[Study] _maybeShowChapterPicker(' + subjectId + '): no loader, starting directly'); this.startSubject(subjectId); return; }
 
       // If subject not loaded yet, load it first then check
       if (!this._isSubjectLoaded(subjectId)) {
         var self = this;
+        console.log('[Study] _maybeShowChapterPicker(' + subjectId + '): not loaded, waiting for onSubjectReady');
         this._showLoading();
         loader.onSubjectReady(subjectId, function() {
           var chapters = loader.getChapters(subjectId);
+          console.log('[Study] _maybeShowChapterPicker(' + subjectId + '): onSubjectReady, chapters=' + (chapters ? chapters.length : 0));
           if (chapters && chapters.length > 0) {
             self._showChapterPicker(subjectId, chapters);
           } else {
@@ -295,6 +298,7 @@
       }
 
       var chapters = loader.getChapters(subjectId);
+      console.log('[Study] _maybeShowChapterPicker(' + subjectId + '): loaded, chapters=' + (chapters ? chapters.length : 0));
       if (chapters && chapters.length > 0) {
         this._showChapterPicker(subjectId, chapters);
       } else {
@@ -324,6 +328,7 @@
         this._chapterPickerSelections[chapters[c]] = true;
       }
       var saved = this._loadChapterSelections(subjectId);
+      console.log('[Study] _showChapterPicker(' + subjectId + '): ' + chapters.length + ' chapters, savedSelections=' + (saved ? JSON.stringify(saved) : 'none'));
       if (saved) {
         for (var ch in saved) {
           if (saved.hasOwnProperty(ch) && this._chapterPickerSelections.hasOwnProperty(ch)) {
@@ -331,6 +336,7 @@
           }
         }
       }
+      console.log('[Study] _showChapterPicker(' + subjectId + '): final selections=' + JSON.stringify(this._chapterPickerSelections));
 
       // Build chapter list HTML
       var listHtml = '';
@@ -431,8 +437,10 @@
             // All chapters = no filter (uses plain subjectId key, compatible with pre-picker sessions).
             // Partial chapters = set filter (uses session key for position tracking).
             if (selected.length === chapters.length) {
+              console.log('[Study] StartBtn(' + subjectId + '): all chapters selected (' + selected.length + '), clearing filter');
               delete loader._chapterFilters[subjectId];
             } else {
+              console.log('[Study] StartBtn(' + subjectId + '): partial chapters, setting filter: ' + JSON.stringify(selected));
               loader.setChapterFilter(subjectId, selected);
             }
           }
@@ -459,6 +467,7 @@
       if (this._fastAdvanceTimeout) { clearTimeout(this._fastAdvanceTimeout); this._fastAdvanceTimeout = null; }
 
       var questions = MediCard.QuestionLoader.getSubject(subjectId);
+      console.log('[Study] startSubject(' + subjectId + '): getSubject returned ' + (questions ? questions.length : 0) + ' questions, _chapterFilters=' + JSON.stringify(MediCard.QuestionLoader._chapterFilters));
       if (questions && questions.length > 0) {
         this._questions = this._shuffleQuestions(questions);
         this._questionIndex = Math.min(this._getSavedIndex(subjectId), questions.length - 1);
@@ -494,10 +503,23 @@
       this._currentSubject = null;
       this._questions = [];
       this._answered = false;
-      // Clear only the previous subject's chapter filter (not all filters set by other screens)
-      if (MediCard.QuestionLoader && prevSubject) {
-        delete MediCard.QuestionLoader._chapterFilters[prevSubject];
+      // Save progress before cleaning up filters
+      this._saveSubjectProgress();
+      console.log('[Study] goBack(' + (prevSubject || 'none') + '): _chapterFilters before cleanup=' + JSON.stringify(MediCard.QuestionLoader ? MediCard.QuestionLoader._chapterFilters : {}));
+      if (MediCard.QuestionLoader) {
+        if (prevSubject) {
+          delete MediCard.QuestionLoader._chapterFilters[prevSubject];
+        }
+        // Also clean up any stale session keys from other subjects
+        // that might have been left by interrupted sessions
+        var studyKeys = MediCard.Storage.get('study_chapter_selections', {});
+        for (var sid in MediCard.QuestionLoader._chapterFilters) {
+          if (!studyKeys[sid]) {
+            delete MediCard.QuestionLoader._chapterFilters[sid];
+          }
+        }
       }
+      console.log('[Study] goBack(' + (prevSubject || 'none') + '): _chapterFilters after cleanup=' + JSON.stringify(MediCard.QuestionLoader ? MediCard.QuestionLoader._chapterFilters : {}));
       // If in fastlearn tab, switch back to practice
       if (this._currentTab === 'fastlearn') {
         this._currentTab = 'practice';
