@@ -4,6 +4,8 @@
  */
 (function() {
   var MediCard = window.MediCard || {};
+  var sessionId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+  var sequence = 0;
 
   MediCard.SyncProtocol = {
     MessageType: {
@@ -28,8 +30,12 @@
       TIME_EXTEND_GRANTED: 'time_ext_granted'
     },
 
+    nextId() {
+      return sessionId + '-' + (++sequence);
+    },
+
     pack(type, data) {
-      return JSON.stringify({ t: type, d: data, ts: Date.now() });
+      return JSON.stringify({ t: type, d: data, ts: Date.now(), id: this.nextId() });
     },
 
     unpack(message) {

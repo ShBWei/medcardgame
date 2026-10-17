@@ -145,6 +145,8 @@
       this._maxPlayers = maxPlayers;
       this._reconnectAttempts = 0;
       this._connectionFailed = false;
+      this._battleStarted = false;
+      this._relayJoined = false;
 
       console.log('[Lobby] _createRoom called, name=' + playerName + ', maxPlayers=' + maxPlayers);
 
@@ -163,7 +165,7 @@
 
       // ── Connection timeout: if PeerJS doesn't connect within 12s, abort ──
       var connTimeout = setTimeout(function() {
-        if (self._connectionFailed) return;
+        if (self._connectionFailed || self._relayReady) return;
         self._connectionFailed = true;
         console.error('[Lobby] Host Peer connection timed out after 12s');
         self._cleanupHostPeer();
@@ -200,7 +202,7 @@
         });
 
         MediCard.NetworkHost._peer.on('error', function(err) {
-          if (self._connectionFailed) return;
+          if (self._connectionFailed || self._relayReady) return;
           self._connectionFailed = true;
           clearTimeout(connTimeout);
           console.error('[Lobby] Peer error:', err.type, err.message);
@@ -216,7 +218,7 @@
         });
 
         MediCard.NetworkHost._peer.on('disconnected', function() {
-          if (self._intentionallyDestroying || self._connectionFailed) return;
+          if (self._intentionallyDestroying || self._connectionFailed || self._relayReady) return;
           self._reconnectAttempts++;
           console.log('[Lobby] Host Peer disconnected, attempt ' + self._reconnectAttempts + '/' + self._maxReconnectAttempts);
           if (self._reconnectAttempts <= self._maxReconnectAttempts &&
@@ -241,9 +243,13 @@
         this._relayReady = false;
         MediCard.NetworkHost._relayReady = false;
         var relay = MediCard.RelayTransport;
+        relay.close();
         relay.on('open', function() {
           self._relayReady = true;
           MediCard.NetworkHost._relayReady = true;
+          clearTimeout(connTimeout);
+          self._showRoomPanel();
+          self._renderPlayerSlots();
           console.log('[Lobby] Relay host ready for room', roomCode);
         });
         relay.on('data', function(msg) {
@@ -277,7 +283,7 @@
       MediCard.NetworkHost._relayReady = false;
       this._relayReady = false;
       // Disconnect relay transport
-      try { MediCard.RelayTransport.disconnect(); } catch(e) {}
+      try { MediCard.RelayTransport.close(); } catch(e) {}
       // Clean up global room state
       MediCard.RoomManager.players = [];
     },
@@ -293,7 +299,7 @@
       MediCard.NetworkClient._peer = null;
       MediCard.NetworkClient._connected = false;
       this._relayReady = false;
-      try { MediCard.RelayTransport.disconnect(); } catch(e) {}
+      try { MediCard.RelayTransport.close(); } catch(e) {}
     },
 
     _setupHostConnection(conn) {
@@ -302,6 +308,11 @@
       conn.on('open', function() {});
 
       conn.on('data', function(data) {
+        if (self._battleStarted) {
+          var idx = MediCard.GameState.players.findIndex(function(p) { return p.peerId === conn.peer; });
+          if (idx > 0) MediCard.ScreenBattle._receiveClientPacket(idx, data);
+          return;
+        }
         var msg = MediCard.SyncProtocol.unpack(data);
         if (!msg) return;
 
@@ -338,6 +349,7 @@
       });
 
       conn.on('close', function() {
+        if (self._battleStarted || (MediCard.RelayTransport.isOpen() && MediCard.RelayTransport.hasPeer(conn.peer))) return;
         var idx = MediCard.NetworkHost._connections.indexOf(conn);
         if (idx >= 0) MediCard.NetworkHost._connections.splice(idx, 1);
         MediCard.RoomManager.removePlayer(conn.peer);
@@ -383,6 +395,8 @@
       this._roomCode = roomCode;
       this._reconnectAttempts = 0;
       this._connectionFailed = false;
+      this._battleStarted = false;
+      this._relayJoined = false;
 
       if (typeof Peer === 'undefined') {
         alert('PeerJS 联机库未加载，请检查网络连接后刷新页面。');
@@ -394,7 +408,7 @@
 
       // ── Connection timeout: if PeerJS doesn't connect within 12s, abort ──
       var connTimeout = setTimeout(function() {
-        if (self._connectionFailed) return;
+        if (self._connectionFailed || self._relayReady) return;
         self._connectionFailed = true;
         console.error('[Lobby] Client Peer connection timed out after 12s');
         self._cleanupClientPeer();
@@ -425,7 +439,7 @@
         });
 
         MediCard.NetworkClient._peer.on('error', function(err) {
-          if (self._connectionFailed) return;
+          if (self._connectionFailed || self._relayReady) return;
           self._connectionFailed = true;
           clearTimeout(connTimeout);
           console.error('[Lobby] Client Peer error:', err.type, err.message);
@@ -439,7 +453,7 @@
         });
 
         MediCard.NetworkClient._peer.on('disconnected', function() {
-          if (self._intentionallyDestroying || self._connectionFailed) return;
+          if (self._intentionallyDestroying || self._connectionFailed || self._relayReady) return;
           self._reconnectAttempts++;
           console.log('[Lobby] Client Peer disconnected, attempt ' + self._reconnectAttempts + '/' + self._maxReconnectAttempts);
           if (self._reconnectAttempts <= self._maxReconnectAttempts &&
@@ -464,8 +478,10 @@
         this._relayReady = false;
         this._dcOpened = false;
         var relay = MediCard.RelayTransport;
+        relay.close();
         relay.on('open', function() {
           self._relayReady = true;
+          clearTimeout(connTimeout);
           console.log('[Lobby] Relay client ready for room', roomCode);
           // If DataChannel hasn't opened yet, send JOIN_REQUEST via relay immediately
           if (!self._dcOpened) {
@@ -498,7 +514,7 @@
 
       // Connection timeout: 30 seconds (cross-network ICE gathering can be slow)
       _connectionTimer = setTimeout(function() {
-        if (!_connectionOpened) {
+        if (!_connectionOpened && !self._relayJoined) {
           try { conn.close(); } catch(e) {}
           alert('连接房主超时（30秒），请确认：\n1. 房间号输入正确\n2. 房主仍在房间中\n3. 双方网络均能访问服务器\n\n提示：不同网络下P2P连接需要更长时间建立');
           self._cleanupNetwork();
@@ -519,6 +535,10 @@
       });
 
       conn.on('data', function(data) {
+        if (self._battleStarted) {
+          MediCard.ScreenBattle._receiveHostPacket(data);
+          return;
+        }
         var msg = MediCard.SyncProtocol.unpack(data);
         if (!msg) return;
 
@@ -564,6 +584,7 @@
       });
 
       conn.on('close', function() {
+        if (self._relayJoined && MediCard.RelayTransport.isOpen()) return;
         if (_connectionTimer) { clearTimeout(_connectionTimer); _connectionTimer = null; }
         if (!_connectionOpened) {
           alert('无法连接到房主，可能原因：\n1. 房主已离开房间\n2. 网络防火墙阻止了P2P连接\n3. 房间号输入错误\n\n请确认后重试。');
@@ -577,6 +598,7 @@
       });
 
       conn.on('error', function(err) {
+        if (self._relayJoined && MediCard.RelayTransport.isOpen()) return;
         if (_connectionTimer) { clearTimeout(_connectionTimer); _connectionTimer = null; }
         console.error('[Lobby] Client connection error:', err.type, err.message);
         if (!_connectionOpened) {
@@ -637,12 +659,12 @@
               '</select>' +
             '</div>' +
             '<button class="btn btn-gold btn-lg" id="btn-start-game" disabled style="margin-top:12px;">⚔️ 开始对决</button>';
-          var self = this;
-          setTimeout(function() { self._wireStartButton(); self._wireAddAIButton(); }, 100);
+          if (this._startPoll) clearInterval(this._startPoll);
+          this._wireStartButton();
+          this._wireAddAIButton();
         } else {
           gameActions.innerHTML = '<button class="btn btn-primary btn-lg" id="btn-ready">✅ 准备</button>';
-          var self2 = this;
-          setTimeout(function() { self2._wireReadyButton(); }, 100);
+          this._wireReadyButton();
         }
       }
     },
@@ -756,6 +778,7 @@
 
     /* ============ Game Start ============ */
     _startGameAsHost() {
+      this._battleStarted = true;
       var players = MediCard.RoomManager.players;
       var self = this;
 
@@ -813,15 +836,7 @@
       for (var ci = 0; ci < MediCard.NetworkHost._connections.length; ci++) {
         var conn = MediCard.NetworkHost._connections[ci];
         if (!conn.open) continue;
-        // Map connection index to player index, skipping AI players
-        var clientIdx = -1;
-        var _nonAiCnt = 0;
-        for (var _pi = 1; _pi < players.length; _pi++) {
-          if (!players[_pi].isAI) {
-            if (_nonAiCnt === ci) { clientIdx = _pi; break; }
-            _nonAiCnt++;
-          }
-        }
+        var clientIdx = players.findIndex(function(p) { return p.peerId === conn.peer; });
         if (clientIdx < 0) continue; // safety: skip if mapping fails
         conn.send(MediCard.SyncProtocol.pack(
           MediCard.SyncProtocol.MessageType.GAME_START,
@@ -890,7 +905,7 @@
               })
             }
           );
-          MediCard.RelayTransport.send(riPack);
+          MediCard.RelayTransport.sendTo(rp.relayId || rp.peerId, riPack);
         }
       }
 
@@ -907,6 +922,8 @@
     },
 
     _onGameStartAsClient(data) {
+      if (this._battleStarted) return;
+      this._battleStarted = true;
       var myIdx = data.yourIndex;
       var totalPlayers = data.totalPlayers;
       var players = data.players.map(function(p, i) {
@@ -962,6 +979,11 @@
       var data = MediCard.SyncProtocol.unpack(msg.payload);
       if (!data) return;
       var fromId = msg.from;
+      if (this._battleStarted) {
+        var idx = MediCard.GameState.players.findIndex(function(p) { return p.peerId === fromId || p.relayId === fromId; });
+        if (idx > 0) MediCard.ScreenBattle._receiveClientPacket(idx, msg.payload);
+        return;
+      }
 
       switch (data.t) {
         case M.JOIN_REQUEST:
@@ -996,12 +1018,18 @@
 
     /** Client: handle relay data from host */
     _onRelayClientData: function(msg) {
+      if (msg.from !== 'medicard-' + this._roomCode + '-host') return;
+      if (this._battleStarted) {
+        MediCard.ScreenBattle._receiveHostPacket(msg.payload);
+        return;
+      }
       var M = MediCard.SyncProtocol.MessageType;
       var data = MediCard.SyncProtocol.unpack(msg.payload);
       if (!data) return;
 
       switch (data.t) {
         case M.JOIN_ACCEPT:
+          this._relayJoined = true;
           this._roomCode = data.d.roomCode;
           this._players = data.d.players || [];
           this._maxPlayers = data.d.maxPlayers || 2;

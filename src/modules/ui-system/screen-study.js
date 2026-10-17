@@ -10,6 +10,8 @@
   MediCard.ScreenStudy = {
     // ── State ──
     _currentSubject: null,
+    _sessionSize: 10,
+    _optionOrders: {},
     _questions: [],
     _questionIndex: 0,
     _sessionCorrect: 0,
@@ -20,7 +22,7 @@
     _timerOn: false,
     _timerRemaining: 0,
     _timerInterval: null,
-    _theme: 'forest',
+    _theme: 'sakura',
     _mode: 'slow',           // 'slow' | 'fast' | 'timed'
     _timedDuration: 30,      // seconds for timed mode countdown
     _questionStartTime: 0,   // timestamp when question was displayed
@@ -112,6 +114,11 @@
           '</div>' +
           '<div id="study-main-area">' +
             loadStatusHtml +
+            '<section class="study-welcome" aria-label="练习计划">' +
+              '<div><span class="study-eyebrow">一点一点，学得更牢</span><h2>今天，也为未来的自己积累一点。🌱</h2>' +
+              '<p>先回忆，再作答；读懂解析，隔一段时间再见。优先安排已到复习时间的题目。</p></div>' +
+              '<label class="study-session-picker">每组练习<select id="study-session-size"><option value="10"' + (this._sessionSize === 10 ? ' selected' : '') + '>10 题 · 轻量练习</option><option value="20"' + (this._sessionSize === 20 ? ' selected' : '') + '>20 题 · 专注巩固</option><option value="0"' + (this._sessionSize === 0 ? ' selected' : '') + '>全部 · 自由练习</option></select></label>' +
+            '</section>' +
             statsHtml +
             '<div class="study-subject-grid" id="study-subject-grid">' + gridHtml + '</div>' +
           '</div>' +
@@ -122,6 +129,8 @@
       var existingParticles = document.querySelectorAll('.study-light-particle');
       for (var ep = 0; ep < existingParticles.length; ep++) existingParticles[ep].remove();
 
+      var sizePicker = document.getElementById('study-session-size');
+      if (sizePicker) sizePicker.addEventListener('change', function() { self._sessionSize = Number(this.value); });
       this._attachSubjectEvents();
       this._attachHeaderEvents();
       this._attachModeTabEvents();
@@ -154,7 +163,7 @@
               ? ((m.questionCount || 0) + '题 · 已答' + prog.answered + ' · 正确率' + (prog.answered > 0 ? Math.round(prog.correct / prog.answered * 100) : 0) + '%')
               : '加载中...') +
           '</div>' +
-          '<div class="study-subject-progress"><div class="study-subject-progress-fill" style="width:' + pct + '%;"></div></div>' +
+          '<div class="study-subject-progress"><div class="study-subject-progress-fill" style="width:' + Math.min(100, pct) + '%;"></div></div>' +
         '</div>';
     },
 
@@ -470,6 +479,27 @@
       }
     },
 
+    /** Build a short session; stable IDs must be assigned before randomization. */
+    _prepareSession: function(questions) {
+      var subject = this._currentSubject;
+      var FL = MediCard.FastLearnCore;
+      if (FL) FL.load();
+      var now = Date.now();
+      var queue = this._shuffleQuestions(questions.map(function(q, idx) {
+        return Object.assign({}, q, { id: q.id || (subject + '_' + idx) });
+      }));
+      function priority(q) {
+        var entry = FL && FL._memory[q.id];
+        if (entry && entry.nextReview > 0 && entry.nextReview <= now) return 0;
+        if (!entry || !entry.reviewCount) return 1;
+        return 2;
+      }
+      queue.sort(function(a, b) { return priority(a) - priority(b); });
+      this._questions = this._sessionSize ? queue.slice(0, this._sessionSize) : queue;
+      this._questionIndex = 0;
+      this._optionOrders = {};
+    },
+
     /** Enter question session for a subject */
     startSubject: function(subjectId) {
       var self = this;
@@ -488,8 +518,7 @@
       var questions = MediCard.QuestionLoader.getSubject(subjectId);
       console.log('[Study] startSubject(' + subjectId + '): getSubject returned ' + (questions ? questions.length : 0) + ' questions, _chapterFilters=' + JSON.stringify(MediCard.QuestionLoader._chapterFilters));
       if (questions && questions.length > 0) {
-        this._questions = this._shuffleQuestions(questions);
-        this._questionIndex = Math.min(this._getSavedIndex(subjectId), questions.length - 1);
+        this._prepareSession(questions);
         this._renderQuestion();
         return;
       }
@@ -499,8 +528,8 @@
       MediCard.QuestionLoader.onSubjectReady(subjectId, function() {
         var qs = MediCard.QuestionLoader.getSubject(subjectId);
         if (qs && qs.length > 0) {
-          self._questions = self._shuffleQuestions(qs);
-          self._questionIndex = self._getSavedIndex(subjectId);
+          if (self._currentSubject !== subjectId) return;
+          self._prepareSession(qs);
           self._renderQuestion();
         } else {
           document.getElementById('study-main-area').innerHTML = '' +
@@ -777,6 +806,10 @@
     _recordAnswer: function(correct) {
       var subj = this._currentSubject;
       var q = this._questions[this._questionIndex];
+      if (q && MediCard.FastLearnCore) {
+        MediCard.FastLearnCore.updateMemory(q.id || (subj + '_' + this._questionIndex), correct,
+          Math.max(0, Date.now() - this._questionStartTime), '', q.knowledgePoint || q.kp || '', subj);
+      }
 
       // Per-chapter progress
       var chapterKey = this._getChapterKey(subj);
@@ -805,12 +838,13 @@
     // ── Theme ──
 
     _loadTheme: function() {
+      this._theme = 'sakura';
       try {
         var t = localStorage.getItem('medicard_study_theme');
         if (t && ['nightstudy', 'sakura', 'camp', 'catcafe', 'seaside', 'minimal'].indexOf(t) >= 0) {
           this._theme = t;
         }
-      } catch(e) { this._theme = 'nightstudy'; }
+      } catch(e) { this._theme = 'sakura'; }
     },
 
     _loadMode: function() {
@@ -969,7 +1003,9 @@
       var rawOpts = q.options || q.opts || [];
       var correctRaw = q.correctAnswers || q.ans || [];
       var parsedOptions = this._parseOptions(rawOpts, correctRaw);
-      var shuffled = this._shuffleOptions(parsedOptions);
+      var orderKey = q.id || (this._currentSubject + '_' + this._questionIndex);
+      var shuffled = this._optionOrders[orderKey] || this._shuffleOptions(parsedOptions);
+      this._optionOrders[orderKey] = shuffled;
 
       var labels = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
       this._currentShuffled = shuffled.map(function(opt, idx) {
@@ -1020,7 +1056,7 @@
             }).join('') +
           '</div>' +
           (isMulti ? '<div style="text-align:center;margin-top:10px;"><button class="study-continue-btn" id="multi-submit-btn" style="display:none;min-width:200px;">提交答案</button></div>' : '') +
-          '<div id="study-feedback-area"></div>' +
+          '<div id="study-feedback-area" aria-live="polite"></div>' +
           '<div class="study-toolbar">' +
             '<button class="study-toolbar-btn" id="study-prev-btn" style="display:none">← 上一题</button>' +
             '<button class="study-toolbar-btn' + (isBookmarked ? ' bookmarked' : '') + '" id="study-bookmark-btn">' + (isBookmarked ? '⭐ 已收藏' : '☆ 收藏') + '</button>' +
@@ -1354,7 +1390,7 @@
         if (isCorrect) {
           fbHtml += '✅ 回答正确！';
         } else {
-          fbHtml += '❌ 回答错误';
+          fbHtml += '🌱 找到一个值得巩固的知识点';
         }
         fbHtml += '</div>';
 
@@ -1374,12 +1410,13 @@
 
         // Rich explanation
         fbHtml += self._buildExplanationHTML(q);
+        fbHtml += '<div class="study-recall-note"><strong>给未来的自己留一个线索</strong><p>这道题最关键的依据是什么？为什么另一个选项不合适？先用自己的话说一句，再继续。</p><span>本次作答已加入快学复习记录。短期答对不代表长期掌握。</span></div>';
 
         // Record question timing for timed mode
         var elapsed = self._questionStartTime > 0 ? Date.now() - self._questionStartTime : 0;
         self._questionTimes.push({ index: self._questionIndex, ms: elapsed, correct: isCorrect });
 
-        if (self._mode === 'fast') {
+        if (self._mode === 'fast' && isCorrect) {
           // Fast mode: auto-advance after brief flash (no continue button)
           fbArea.innerHTML = fbHtml;
           // Flash all options briefly
@@ -1432,7 +1469,7 @@
       var subjectName = m.name || this._currentSubject;
 
       var icon = pct >= 90 ? '🏆' : pct >= 70 ? '🎉' : pct >= 50 ? '💪' : '📚';
-      var msg = pct >= 90 ? '太棒了！知识掌握扎实！' :
+      var msg = pct >= 90 ? '这一组完成得很好！隔一段时间再测一次，更能检验记忆。' :
                 pct >= 70 ? '很好！继续加油！' :
                 pct >= 50 ? '还不错，多复习错题哦~' :
                 '别灰心，每次刷题都是进步！';
@@ -1497,7 +1534,7 @@
           timingStatsHTML +
           '<div class="study-summary-actions">' +
             '<button class="study-action-btn primary" id="study-retry">🔄 重新刷题</button>' +
-            '<button class="study-action-btn primary" id="study-continue">▶ 继续未答</button>' +
+            '<button class="study-action-btn primary" id="study-continue">🌿 开始下一组</button>' +
             (newWrongCount > 0
               ? '<button class="study-action-btn" id="study-review-wrong">📝 复习错题(' + newWrongCount + ')</button>'
               : '') +
@@ -1596,6 +1633,8 @@
       var backBtn = document.getElementById('study-back-subjects');
 
       if (retryBtn) retryBtn.addEventListener('click', function() {
+        self._optionOrders = {};
+        self._questionTimes = [];
         self._questions = self._shuffleQuestions(self._questions);
         self._questionIndex = 0;
         self._sessionCorrect = 0;
@@ -1606,13 +1645,7 @@
       });
 
       if (continueBtn) continueBtn.addEventListener('click', function() {
-        // Resume from where they left off
-        self._questionIndex = self._getSavedIndex(self._currentSubject);
-        self._sessionCorrect = 0;
-        self._sessionAnswered = 0;
-        self._sessionWrongIds = [];
-        self._questionHistory = [];
-        self._renderQuestion();
+        self.startSubject(self._currentSubject);
       });
 
       if (reviewWrongBtn) reviewWrongBtn.addEventListener('click', function() {
@@ -1623,6 +1656,9 @@
           if (q) wrongQs.push(q);
         }
         if (wrongQs.length > 0) {
+          self._questionHistory = [];
+          self._optionOrders = {};
+          self._questionTimes = [];
           self._questions = wrongQs;
           self._questionIndex = 0;
           self._sessionCorrect = 0;

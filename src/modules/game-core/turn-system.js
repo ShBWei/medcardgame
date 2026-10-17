@@ -81,15 +81,18 @@
       this.timeLeft = limit;
       this.onTimeout = onExpire || null;
       this._timerCtx = { onTick: onTick, onExpire: onExpire };
+      var timerCtx = this._timerCtx;
       var self = this;
       this.turnTimer = setInterval(function() {
+        if (self._timerCtx !== timerCtx) return;
         self.timeLeft--;
         if (self.onTimerTick) self.onTimerTick(self.timeLeft);
+        if (self._timerCtx !== timerCtx) return;
         if (self._timerCtx && self._timerCtx.onTick) self._timerCtx.onTick(self.timeLeft);
+        if (self._timerCtx !== timerCtx) return;
         if (self.timeLeft <= 0) {
-          self.stopTurnTimer();
           var cb = self.onTimeout;
-          self.onTimeout = null;
+          self.stopTurnTimer();
           if (cb) {
             try {
               if (MediCard.BattleLogger) MediCard.BattleLogger.log('SYSTEM', 'turn_timeout', 'Turn timer expired after ' + limit + 's');

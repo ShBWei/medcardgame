@@ -216,9 +216,8 @@
         }
       }
       // Fall back to relay
-      if (this._relayReady) {
-        this._relay.send(message);
-      }
+      var relay = MediCard.RelayTransport;
+      if (relay && relay.isOpen()) relay.sendTo('medicard-' + MediCard.ScreenLobby._roomCode + '-host', message);
     },
 
     sendPlayCard(cardIndex) {

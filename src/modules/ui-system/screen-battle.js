@@ -287,49 +287,21 @@
 
     /* ============ Multiplayer P2P Sync ============ */
 
-    _setupMultiplayerSync: function() {
-      var self = this;
-      var gs = MediCard.GameState;
+    _acceptBattlePacket: function(raw, sender) {
+      var msg = MediCard.SyncProtocol.unpack(raw);
+      if (!msg) return null;
+      if (!this._receivedPackets) this._receivedPackets = new Set();
+      var key = sender + ':' + msg.id;
+      if (msg.id && this._receivedPackets.has(key)) return null;
+      if (msg.id) this._receivedPackets.add(key);
+      return msg;
+    },
 
-      if (this._isHost) {
-        // Host: remove lobby-phase handlers, install battle-phase handlers
-        var conns = MediCard.NetworkHost._connections;
-        for (var ci = 0; ci < conns.length; ci++) {
-          // Map connection index to player index, skipping AI players (must be outside IIFE)
-          var _playerIdx = -1;
-          var _nonAiCnt = 0;
-          for (var _pi2 = 1; _pi2 < gs.players.length; _pi2++) {
-            if (!gs.players[_pi2].isAI) {
-              if (_nonAiCnt === ci) { _playerIdx = _pi2; break; }
-              _nonAiCnt++;
-            }
-          }
-          if (_playerIdx < 0) continue; // safety: skip broken mapping
-          (function(conn, clientIdx) {
-            // [SYNC] Strip old lobby handlers to prevent triple-processing
-            if (typeof conn.off === 'function') { conn.off('data'); }
-            conn.on('data', function(raw) {
-              try {
-              var msg = MediCard.SyncProtocol.unpack(raw);
-              if (!msg) return;
-              // FIX-P0-001: N-003 message whitelist — reject unknown message types
-              var ALLOWED_TYPES = [
-                MediCard.SyncProtocol.MessageType.PLAY_CARD,
-                MediCard.SyncProtocol.MessageType.END_TURN,
-                MediCard.SyncProtocol.MessageType.ANSWER_QUESTION,
-                MediCard.SyncProtocol.MessageType.DEFEND_ANSWER,
-                MediCard.SyncProtocol.MessageType.SURRENDER,
-                MediCard.SyncProtocol.MessageType.TIME_EXTEND_VOTE,
-                MediCard.SyncProtocol.MessageType.DELTA_STATE
-              ];
-              if (ALLOWED_TYPES.indexOf(msg.t) === -1) {
-                if (MediCard.BattleLogger) {
-                  MediCard.BattleLogger.log('SECURITY', 'unknown_msg_type',
-                    'Host rejected unknown message type: ' + msg.t, { msgType: msg.t, fromClient: clientIdx });
-                }
-                console.warn('[Battle] Host rejected unknown message type: ' + msg.t + ' from client ' + clientIdx);
-                return;
-              }
+    _receiveClientPacket: function(clientIdx, raw) {
+      var self = this;
+      if (!this._isMultiplayer || !this._isHost) return;
+      var msg = this._acceptBattlePacket(raw, clientIdx);
+      if (!msg) return;
               switch (msg.t) {
                 case MediCard.SyncProtocol.MessageType.PLAY_CARD:
                   self._onRemotePlayCard(clientIdx, msg.d);
@@ -342,11 +314,12 @@
                   break;
                 case MediCard.SyncProtocol.MessageType.DEFEND_ANSWER:
                   // FIX-P1-002: Host validates answer against card.correctAnswers — never trust client
-                  if (msg.d && msg.d.choice !== undefined) {
+                  if (msg.d && (typeof msg.d.choice === 'string' || msg.d.choice === null)) {
                     var ctx = self._attackInProgress;
-                    var isValidated = false;
+                    if (!ctx || ctx.defenderIndex !== clientIdx || msg.d.attackId !== ctx.attackId) break;
+                    var isValidated;
                     if (ctx && ctx.card && ctx.card.correctAnswers) {
-                      var choices = msg.d.choice.split(',');
+                      var choices = typeof msg.d.choice === 'string' ? msg.d.choice.split(',') : [];
                       var allCorrect = choices.every(function(c) {
                         return ctx.card.correctAnswers.indexOf(c) >= 0;
                       });
@@ -362,9 +335,9 @@
                       }
                       isValidated = false;
                     }
-                    if (msg.d.isJuesha) {
+                    if (ctx.type === 'juesha') {
                       self._resolveMpJueshaAnswer(isValidated);
-                    } else if (msg.d.isJuedou) {
+                    } else if (ctx.type === 'juedou') {
                       self._resolveMpJuedouAnswer(isValidated);
                     } else {
                       self._resolveDefendAnswer(isValidated);
@@ -386,107 +359,83 @@
                   }
                   break;
               }
-              } catch (e) {
-                console.error('[Battle] Host conn handler crashed:', e);
-                if (MediCard.BattleLogger) {
-                  MediCard.BattleLogger.log('CRASH', 'host_conn_handler', e.message || 'unknown');
-                }
-                try { self._updateDisplay(); } catch (e2) {}
-              }
-            });
-            // FIX-P1-003: Clean up all timers on client disconnect
-            conn.on('close', function() {
-              if (MediCard.BattleLogger) {
-                MediCard.BattleLogger.log('NETWORK', 'client_disconnected',
-                  'Client ' + clientIdx + ' disconnected, cleaning up timers');
-              }
-              self._clearAllTimers();
-            });
-          })(conns[ci], _playerIdx);
-        }
+    },
 
-        // Periodic connection health check — detect dropped clients
-        var dropCheckInterval = this._trackTimer(setInterval(function() {
-          if (!self._isHost || !MediCard.GameState.players) return;
-          var conns = MediCard.NetworkHost && MediCard.NetworkHost._connections;
-          if (!conns) return;
-          var gs = MediCard.GameState;
-          for (var ci = 0; ci < conns.length; ci++) {
-            // Map connection index to player index, skipping AI players
-            var playerIdx = -1;
-            var _nonAiCnt3 = 0;
-            for (var _pi3 = 1; _pi3 < gs.players.length; _pi3++) {
-              if (!gs.players[_pi3].isAI) {
-                if (_nonAiCnt3 === ci) { playerIdx = _pi3; break; }
-                _nonAiCnt3++;
-              }
+    _receiveHostPacket: function(raw) {
+      if (!this._isMultiplayer || this._isHost) return;
+      var msg = this._acceptBattlePacket(raw, 'host');
+      if (!msg) return;
+      var M = MediCard.SyncProtocol.MessageType;
+      if (msg.t === M.DELTA_STATE) this._onHostSync(msg.d);
+      else if (msg.t === M.DEFEND_QUESTION) this._onDefendQuestion(msg.d);
+      else if (msg.t === M.GAME_OVER) this._onRemoteGameOver(msg.d);
+      else if (msg.t === M.TIME_EXTEND_GRANTED) this._onTimeExtendGranted(msg.d);
+    },
+
+    _setupMultiplayerSync: function() {
+      var self = this;
+      var gs = MediCard.GameState;
+      this._processedActions = new Set();
+      this._processedResults = new Set();
+      this._receivedPackets = new Set();
+      this._stateRevision = 0;
+      this._lastStateRevision = 0;
+      if (this._isHost) {
+        (MediCard.NetworkHost._connections || []).forEach(function(conn, ci) {
+          var idx = gs.players.findIndex(function(p) { return p.peerId && p.peerId === conn.peer; });
+          // Compatibility for local fixtures/older rooms without peer IDs.
+          if (idx < 0 && !conn.peer) idx = gs.players.indexOf(gs.players.filter(function(p, i) { return i > 0 && !p.isAI; })[ci]);
+          if (idx < 1) return;
+          if (typeof conn.off === 'function') conn.off('data');
+          conn.on('data', function(raw) { self._receiveClientPacket(idx, raw); });
+        });
+        this._dropCheckInterval = this._trackTimer(setInterval(function() {
+          if (!self._isHost || !self._isMultiplayer) return;
+          gs.players.forEach(function(p, idx) {
+            if (!idx || p.isAI || !p.alive) return;
+            var route = MediCard.MPAttackResolver.validateDefenderRoute(self, idx);
+            if (route.ok) { p._disconnectedAt = null; return; }
+            if (!p._disconnectedAt) { p._disconnectedAt = Date.now(); return; }
+            if (Date.now() - p._disconnectedAt < 15000) return;
+            if (self._attackInProgress && (self._attackInProgress.attackerIndex === idx || self._attackInProgress.defenderIndex === idx)) {
+              MediCard.MPAttackResolver.cancelAttack(self, 'player_disconnected');
             }
-            if (playerIdx < 0) continue; // safety: skip broken mapping
-            if (!conns[ci].open && gs.players[playerIdx] && gs.players[playerIdx].alive) {
-              gs.players[playerIdx].alive = false;
-              if (MediCard.MultiplayerAdapter) MediCard.MultiplayerAdapter.anchorLog(
-                'player_alive', 'player_disconnected', 'drop_check_p' + playerIdx);
-              self._logAction('🔌 ' + (gs.players[playerIdx].name || '玩家' + (playerIdx + 1)) + ' 连接断开');
-              self._flashPhase('🔌 ' + (gs.players[playerIdx].name || '一名玩家') + ' 断开连接');
-              self._sendSync({ type: 'player_disconnected', targetIdx: playerIdx });
-              self._updateDisplay();
-              self._checkGameEnd();
-            }
-          }
-        }, 5000));
-        this._dropCheckInterval = dropCheckInterval;
-      } else {
-        // Client: listen for sync from host
-        var hc = MediCard.NetworkClient._hostConn;
-        if (hc) {
-          hc.on('data', function(raw) {
-            try {
-            var msg = MediCard.SyncProtocol.unpack(raw);
-            if (!msg) return;
-            if (msg.t === MediCard.SyncProtocol.MessageType.DELTA_STATE) {
-              self._onHostSync(msg.d);
-            } else if (msg.t === MediCard.SyncProtocol.MessageType.DEFEND_QUESTION) {
-              self._onDefendQuestion(msg.d);
-            } else if (msg.t === MediCard.SyncProtocol.MessageType.GAME_OVER) {
-              self._onRemoteGameOver(msg.d);
-            } else if (msg.t === MediCard.SyncProtocol.MessageType.TIME_EXTEND_GRANTED) {
-              self._onTimeExtendGranted(msg.d);
-            }
-            } catch (e) {
-              console.error('[Battle] Client conn handler crashed:', e);
-              if (MediCard.BattleLogger) {
-                MediCard.BattleLogger.log('CRASH', 'client_conn_handler', e.message || 'unknown');
-              }
-              try { self._updateDisplay(); } catch (e2) {}
-            }
+            p.alive = false;
+            p.resources.alive = false;
+            self._sendSync({ type: 'player_disconnected', targetIdx: idx });
+            self._updateDisplay();
+            self._checkGameEnd();
           });
-        }
+        }, 5000));
+      } else {
+        var hc = MediCard.NetworkClient._hostConn;
+        if (hc) hc.on('data', function(raw) { self._receiveHostPacket(raw); });
       }
     },
 
     /** Send a sync event to all other players */
     _sendSync: function(data) {
-      // Rate-limit: prevent rapid-fire sends (<300ms between non-critical client actions)
-      if (!this._isHost && Date.now() - this._lastSentAction < 300) {
-        // Allow critical messages through even within rate-limit window
-        var isCritical = data.type === 'offensive_intent' || data.type === 'attack_cancel';
-        if (!isCritical) {
-          if (MediCard.BattleLogger) MediCard.BattleLogger.log('NETWORK', 'rate_limited',
-            'Dropped rapid-fire: ' + (data.type || 'unknown'));
-          return;
-        }
-      }
-      this._lastSentAction = Date.now();
+      // Local actions may already be applied: never silently drop their sync.
+      if (!this._isHost && !data.actionId) data.actionId = MediCard.SyncProtocol.nextId();
 
       if (MediCard.BattleLogger) MediCard.BattleLogger.log('NETWORK', 'send_sync', data.type || 'unknown', { isHost: this._isHost });
 
       if (this._isHost) {
-        var conns = MediCard.NetworkHost._connections;
-        if (!conns || conns.length === 0) return;
-        var pkt = MediCard.SyncProtocol.pack(MediCard.SyncProtocol.MessageType.DELTA_STATE, data);
-        for (var i = 0; i < conns.length; i++) {
-          if (conns[i] && conns[i].open) conns[i].send(pkt);
+        data.revision = ++this._stateRevision || (this._stateRevision = 1);
+        if (data.type === 'action_result' || data.type === 'attack_cancel') {
+          data.health = MediCard.GameState.players.map(function(p) {
+            return { hp: p.resources.hp.current, alive: p.alive, shield: p.shield || 0 };
+          });
         }
+        var self = this;
+        MediCard.GameState.players.forEach(function(player, idx) {
+          if (!idx || player.isAI) return;
+          var route = MediCard.MPAttackResolver.validateDefenderRoute(self, idx);
+          if (!route.ok) return;
+          var payload = Object.assign({}, data);
+          if (idx !== data.currentPlayerIndex) delete payload.currentHand;
+          route.conn.send(MediCard.SyncProtocol.pack(MediCard.SyncProtocol.MessageType.DELTA_STATE, payload));
+        });
       } else {
         MediCard.NetworkClient.send(MediCard.SyncProtocol.pack(
           MediCard.SyncProtocol.MessageType.PLAY_CARD, data
@@ -497,10 +446,15 @@
     /** Host: handle a play card action from a remote client */
     _onRemotePlayCard: function(playerIdx, data) {
       try {
-      // Dedup: skip duplicate messages (same player + card index)
-      var msgId = playerIdx + ':' + (data.cardIndex != null ? data.cardIndex : '') + ':' + (data.type || '');
-      if (msgId === this._lastProcessedMsgId) return;
-      this._lastProcessedMsgId = msgId;
+      if (!data || typeof data !== 'object') return;
+      // A hand slot can hold several different cards during one turn.
+      // Legacy peers without action ids remain playable, without heuristic dedup.
+      if (typeof data.actionId === 'string') {
+        var msgId = playerIdx + ':' + data.actionId;
+        if (!this._processedActions) this._processedActions = new Set();
+        if (this._processedActions.has(msgId)) return;
+        this._processedActions.add(msgId);
+      }
 
       var gs = MediCard.GameState;
       if (gs.currentPlayerIndex !== playerIdx) return;
@@ -509,28 +463,34 @@
 
       // Offensive intent: route by card type
       if (data.type === 'attack_intent' || data.type === 'offensive_intent') {
-        var ct = data.cardType || 'attack';
+        if (!Number.isInteger(data.cardIndex) || data.cardIndex < 0) return;
+        var actualCard = player.hand[data.cardIndex];
+        if (!actualCard) return;
+        var ct = actualCard.cardType;
         if (ct === 'juesha') {
-          this._handleJueshaMpIntent(playerIdx, data.cardIndex, data.targetIdx);
+          this._handleJueshaMpIntent(playerIdx, data.cardIndex, data.targetIdx, data.attackId);
         } else if (ct === 'juedou') {
-          this._handleJuedouMpIntent(playerIdx, data.cardIndex, data.targetIdx);
-        } else {
-          this._handleAttackIntent(playerIdx, data.cardIndex, data.targetIdx, data.scalpelBonus);
+          this._handleJuedouMpIntent(playerIdx, data.cardIndex, data.targetIdx, data.attackId);
+        } else if (ct === 'attack') {
+          this._handleAttackIntent(playerIdx, data.cardIndex, data.targetIdx, data.scalpelBonus, data.attackId);
         }
         return;
       }
 
       // Client timed out waiting for defender — clean up host guard
       if (data.type === 'attack_cancel') {
-        if (this._attackInProgress) {
-          MediCard.MPAttackResolver.clearHostGuard(this);
-          this._flashPhase('⏰ ' + (player.name || '玩家') + ' 攻击取消（超时）');
+        if (this._attackInProgress && this._attackInProgress.attackerIndex === playerIdx &&
+            data.attackId === this._attackInProgress.attackId) {
+          MediCard.MPAttackResolver.cancelAttack(this, 'client_timeout', player.name);
         }
         return;
       }
 
       // Non-attack card play from client
-      if (data.cardIndex < player.hand.length) {
+      var isJudgmentResult = data.type === 'judgment_result' && data.cardSubtype === 'leiDian';
+      if (this._attackInProgress) return;
+      if (!isJudgmentResult && (!Number.isInteger(data.cardIndex) || data.cardIndex < 0 || data.cardIndex >= player.hand.length)) return;
+      if (!isJudgmentResult && data.cardIndex < player.hand.length) {
         var removed = player.hand.splice(data.cardIndex, 1)[0];
         gs.discardPile.push(removed);
       }
@@ -619,6 +579,7 @@
       this._updateDisplay();
       // Broadcast result to all clients
       this._sendSync({ type: 'action_result', sourceIdx: playerIdx, data: data });
+      this._checkGameEnd();
       } catch (e) {
         console.error('[Battle] _onRemotePlayCard crashed:', e);
         if (MediCard.BattleLogger) {
@@ -642,6 +603,7 @@
         return;
       }
       console.log('[Battle] _onRemoteEndTurn: playerIdx=' + playerIdx + ' ending turn, advancing via _continueNewTurn');
+      if (this._attackInProgress) MediCard.MPAttackResolver.cancelAttack(this, 'turn_end');
       this._continueNewTurn();
     },
 
@@ -735,12 +697,29 @@
     _onHostSync: function(data) {
       try {
       var gs = MediCard.GameState;
+      if (data.revision && data.revision <= (this._lastStateRevision || 0)) return;
+      if (data.revision) this._lastStateRevision = data.revision;
       switch (data.type) {
         case 'action_result':
+          this._dismissDefendQuestion(data.attackId);
+          var resultId = data.attackId || (data.data && data.data.actionId);
+          if (resultId) {
+            if (!this._processedResults) this._processedResults = new Set();
+            var resultKey = data.sourceIdx + ':' + resultId;
+            if (this._processedResults.has(resultKey)) return;
+            this._processedResults.add(resultKey);
+          }
           // Another player performed an action — apply the delta
           var p = gs.players[data.sourceIdx];
           if (p && data.data) {
             var isOffensiveAction = (data.data.cardType === 'attack' || data.data.cardType === 'juesha' || data.data.cardType === 'juedou');
+            if (data.data.cardType === 'juesha' && Number.isInteger(data.data.defenseCardIndex)) {
+              var defendingPlayer = gs.players[data.data.targetIdx];
+              var defenseIndex = data.data.defenseCardIndex;
+              if (defendingPlayer && defenseIndex >= 0 && defenseIndex < defendingPlayer.hand.length) {
+                gs.discardPile.push(defendingPlayer.hand.splice(defenseIndex, 1)[0]);
+              }
+            }
             if (isOffensiveAction && data.data.damage > 0) {
               var target = gs.players[data.data.targetIdx];
               if (target && target.alive) {
@@ -753,7 +732,7 @@
             // Card removal: skip for our own non-attack actions (already removed locally),
             // but DO remove for our own offensive actions (delayed removal via host confirmation)
             var isOwnAction = data.sourceIdx === this._myPlayerIndex;
-            if (!isOwnAction || isOffensiveAction) {
+            if ((!isOwnAction || isOffensiveAction) && data.data.type !== 'judgment_result') {
               if (data.data.cardIndex < (p.hand ? p.hand.length : 0)) {
                 p.hand.splice(data.data.cardIndex, 1);
               }
@@ -831,8 +810,20 @@
               if (ldt && !ldt.alive) this._checkGameEnd();
             }
           }
+          if (data.health) {
+            data.health.forEach(function(state, idx) {
+              var player = gs.players[idx];
+              if (!player) return;
+              player.resources.hp.current = state.hp;
+              player.resources.alive = state.alive;
+              player.alive = state.alive;
+              player.shield = state.shield;
+            });
+          }
           // Clear waiting state if this was our own attack + show result (uses MPAttackResolver)
-          if (this._attackInProgress && this._attackInProgress.type === 'waiting_defend') {
+          if (this._attackInProgress && this._attackInProgress.type === 'waiting_defend' &&
+              data.sourceIdx === this._myPlayerIndex && data.attackId === this._attackInProgress.attackId) {
+            if (data.data && data.data.cardType === 'juesha') this._jueshaPlayedThisTurn = true;
             MediCard.MPAttackResolver.clearClientGuard(this);
             this._pendingCard = null;
             if (data.data && (data.data.cardType === 'attack' || data.data.cardType === 'juesha' || data.data.cardType === 'juedou')) {
@@ -862,8 +853,10 @@
           break;
 
         case 'attack_cancel':
+          this._dismissDefendQuestion(data.attackId);
           // Host timed out waiting for defender — clean up client-side guard
-          if (this._attackInProgress) {
+          if (this._attackInProgress && data.sourceIdx === this._myPlayerIndex &&
+              data.attackId === this._attackInProgress.attackId) {
             MediCard.MPAttackResolver.clearClientGuard(this);
             this._flashPhase('⏰ 攻击取消（超时）');
             this._updateDisplay();
@@ -905,14 +898,13 @@
             this._isDiscardPhase = false;
             this._playedCardsThisTurn = [];
             this._attacksThisTurn = 0;
+            this._jueshaPlayedThisTurn = false;
             this._attackTargetIndex = -1;
             this._pendingAttackCardIndex = -1;
             this._selectedCardIndex = -1;
             this._attackInProgress = null;
-            var identEff = MediCard.IdentitySkills.applyTurnStartEffects(this._player);
-            if (identEff && identEff.healed > 0) {
-              this._flashPhase('👑 君威：回合开始时恢复' + identEff.healed + '点HP');
-            }
+            // Host has already applied turn-start healing before this snapshot.
+            if (data.turnHealing > 0) this._flashPhase('👑 君威：回合开始时恢复' + data.turnHealing + '点HP');
             if (this._player.vaccineTurns > 0) this._player.vaccineTurns--;
             if (!this._player.maxAttacks) this._player.maxAttacks = 1;
             if (this._player.attackBonus === undefined) this._player.attackBonus = 0;
@@ -2353,7 +2345,7 @@
                 var jcDmg = MediCard.Resources.dealDamage(jcTarget.player, 1);
                 this._gameStats.damageDealt += jcDmg.actual;
                 this._flashPhase('🦠 交叉感染！' + (jcTarget.player.name || '对手') + '受到1点伤害');
-                if (!jcTarget.player.alive) { this._endGame(); return; }
+                // Sync lethal damage before checking victory below.
               }
             }
           } else {
@@ -2406,7 +2398,7 @@
       if (this._isMultiplayer) {
         var sd = { cardIndex: idx, cardType: 'tactic', cardSubtype: card.cardSubtype };
         switch (card.cardSubtype) {
-          case 'huiZhen': sd.drawCount = 2; break;
+          case 'huiZhen': sd.drawCount = hzCount; break;
           case 'jiJiu': sd.healAmount = (typeof h !== 'undefined' ? h : 0); break;
           case 'yaoXiao': sd.attackBonusAdd = 1; break;
           case 'mianYi': sd.immuneNextTurn = true; break;
@@ -2426,6 +2418,7 @@
       this._pendingCard = null;
       this._selectedCardIndex = -1;
       this._updateDisplay();
+      if (this._isMultiplayer && this._isHost) this._checkGameEnd();
     },
 
     /* ── Organ Removal (器官摘除) helpers ── */
@@ -2850,7 +2843,7 @@
       if (!this._isMultiplayer) return;
       var ld = this._leiDianData;
       var sd = {
-        cardIndex: this._pendingCard ? this._pendingCard.index : -1,
+        type: 'judgment_result',
         cardType: 'tactic',
         cardSubtype: 'leiDian',
         targetIdx: targetIdx,
@@ -4783,6 +4776,7 @@
             'turn_p' + prevPlayerIdx, 'turn_p' + gs.currentPlayerIndex, 'end_turn');
           this._sendSync({
             type: 'turn_change',
+            turnHealing: identEff2 ? identEff2.healed : 0,
             prevPlayerIndex: prevPlayerIdx,
             currentPlayerIndex: gs.currentPlayerIndex,
             deckCount: gs.deck.length,
@@ -5099,7 +5093,11 @@
       // Clear any in-progress attacks
       if (this._attackInProgress) {
         if (MediCard.MPAttackResolver) {
-          MediCard.MPAttackResolver.clearHostGuard(this);
+          if (this._isMultiplayer && this._isHost) {
+            MediCard.MPAttackResolver.cancelAttack(this, 'turn_end');
+          } else {
+            MediCard.MPAttackResolver.clearClientGuard(this);
+          }
         }
         this._attackInProgress = null;
       }
@@ -5604,20 +5602,24 @@
     },
 
     /** Host: process an attack intent from any player */
-    _handleAttackIntent: function(attackerIdx, cardIndex, targetIdx, scalpelBonus) {
+    _handleAttackIntent: function(attackerIdx, cardIndex, targetIdx, scalpelBonus, attackId) {
+      if (this._attackInProgress || !Number.isInteger(cardIndex) || cardIndex < 0 ||
+          !Number.isInteger(targetIdx) || attackerIdx === targetIdx) return;
       var gs = MediCard.GameState;
       var attacker = gs.players[attackerIdx];
       var defender = gs.players[targetIdx];
       if (!attacker || !defender || !attacker.alive || !defender.alive) return;
 
       var card = attacker.hand[cardIndex];
-      if (!card) return;
+      if (!card || card.cardType !== 'attack') return;
+      attackId = attackId || MediCard.SyncProtocol.nextId();
 
       // Remove card from attacker's hand on host
       attacker.hand.splice(cardIndex, 1);
 
       // Store attack context
       this._attackInProgress = {
+        attackId: attackId,
         type: 'attack',
         card: card,
         attacker: attacker,
@@ -5632,12 +5634,10 @@
       // Safety timeout: auto-clear if no answer within 45s (defender disconnected)
       var self = this;
       var attackCtx = this._attackInProgress;
+      if (targetIdx === this._myPlayerIndex) this._defendQuestionId = attackId;
       this._attackTimeout = this._trackTimer(setTimeout(function() {
         if (self._attackInProgress === attackCtx) {
-          MediCard.MPAttackResolver.clearHostGuard(self);
-          self._flashPhase('⏰ 防守方超时未应答，攻击自动取消');
-          self._sendSync({ type: 'attack_cancel', sourceIdx: self._myPlayerIndex });
-          self._updateDisplay();
+          MediCard.MPAttackResolver.cancelAttack(self, 'defender_timeout');
         }
       }, 45000));
 
@@ -5645,6 +5645,7 @@
         // Host IS the defender — answer locally
         this._flashPhase('🛡️ ' + attacker.name + ' 对你使用' + (card.cardName || '杀') + '！请答题');
         MediCard.QuestionPopup.show(card, function(result) {
+          if (self._attackInProgress !== attackCtx) return;
           self._trackAnswer(result, card);
           self._resolveDefendAnswer(result.correct);
         }, '你');
@@ -5655,20 +5656,21 @@
         var answered = Math.random() < cmpCorrect;
         self._logAction('🤖 ' + (defender.name || 'AI') + ' 防御答题' + (answered ? '正确' : '错误'));
         self._trackAnswer({ correct: answered }, card);
-        setTimeout(function() { self._resolveDefendAnswer(answered); }, 500 + Math.random() * 1500);
+        setTimeout(function() { if (self._attackInProgress === attackCtx) self._resolveDefendAnswer(answered); }, 500 + Math.random() * 1500);
       } else {
         // Defender is a remote client — validate route, then send question
         var route = MediCard.MPAttackResolver.validateDefenderRoute(this, targetIdx);
         if (route.ok) {
           route.conn.send(MediCard.SyncProtocol.pack(
             MediCard.SyncProtocol.MessageType.DEFEND_QUESTION,
-            { card: card, attackerName: attacker.name }
+            { card: card, attackId: attackId, attackerName: attacker.name }
           ));
           this._flashPhase('🎯 等待 ' + defender.name + ' 答题...');
         } else if (route.localResolve) {
           // Target IS the host (shouldn't reach here, but handle gracefully)
           this._flashPhase('🛡️ ' + attacker.name + ' 对你使用' + (card.cardName || '杀') + '！请答题');
           MediCard.QuestionPopup.show(card, function(result) {
+            if (self._attackInProgress !== attackCtx) return;
             self._trackAnswer(result, card);
             self._resolveDefendAnswer(result.correct);
           }, '你');
@@ -5688,20 +5690,24 @@
     /** Host: process a juedou (duel) intent from any player in mp.
         Juedou forces the defender to answer — no defense cards help.
         Simplified vs single-player: one question, 1 damage if wrong. */
-    _handleJuedouMpIntent: function(attackerIdx, cardIndex, targetIdx) {
+    _handleJuedouMpIntent: function(attackerIdx, cardIndex, targetIdx, attackId) {
+      if (this._attackInProgress || !Number.isInteger(cardIndex) || cardIndex < 0 ||
+          !Number.isInteger(targetIdx) || attackerIdx === targetIdx) return;
       var gs = MediCard.GameState;
       var attacker = gs.players[attackerIdx];
       var defender = gs.players[targetIdx];
       if (!attacker || !defender || !attacker.alive || !defender.alive) return;
 
       var card = attacker.hand[cardIndex];
-      if (!card) return;
+      if (!card || card.cardType !== 'juedou') return;
+      attackId = attackId || MediCard.SyncProtocol.nextId();
 
       // Remove juedou card from attacker's hand on host
       attacker.hand.splice(cardIndex, 1);
       gs.discardPile.push(card);
 
       this._attackInProgress = {
+        attackId: attackId,
         type: 'juedou', card: card, attacker: attacker, defender: defender,
         attackerIndex: attackerIdx, defenderIndex: targetIdx, cardIndex: cardIndex
       };
@@ -5709,12 +5715,10 @@
       // Host-side safety timeout
       var self = this;
       var jdCtx = this._attackInProgress;
+      if (targetIdx === this._myPlayerIndex) this._defendQuestionId = attackId;
       this._attackTimeout = this._trackTimer(setTimeout(function() {
         if (self._attackInProgress === jdCtx) {
-          MediCard.MPAttackResolver.clearHostGuard(self);
-          self._flashPhase('⏰ 防守方超时未应答，决斗自动取消');
-          self._sendSync({ type: 'attack_cancel', sourceIdx: self._myPlayerIndex });
-          self._updateDisplay();
+          MediCard.MPAttackResolver.cancelAttack(self, 'defender_timeout');
         }
       }, 45000));
 
@@ -5722,6 +5726,7 @@
         // Host IS the defender — answer locally
         this._flashPhase('⚔️ ' + attacker.name + ' 对你使用' + (card.cardName || '决斗') + '！无法防御，请答题');
         MediCard.QuestionPopup.show(card, function(result) {
+          if (self._attackInProgress !== jdCtx) return;
           self._trackAnswer(result, card);
           self._resolveMpJuedouAnswer(result.correct);
         }, '你');
@@ -5732,19 +5737,20 @@
         var jdAnswered = Math.random() < jdCorrect;
         self._logAction('🤖 ' + (defender.name || 'AI') + ' 决斗答题' + (jdAnswered ? '正确' : '错误'));
         self._trackAnswer({ correct: jdAnswered }, card);
-        setTimeout(function() { self._resolveMpJuedouAnswer(jdAnswered); }, 500 + Math.random() * 1500);
+        setTimeout(function() { if (self._attackInProgress === jdCtx) self._resolveMpJuedouAnswer(jdAnswered); }, 500 + Math.random() * 1500);
       } else {
         // Defender is a remote client — validate route, then send question
         var route = MediCard.MPAttackResolver.validateDefenderRoute(self, targetIdx);
         if (route.ok) {
           route.conn.send(MediCard.SyncProtocol.pack(
             MediCard.SyncProtocol.MessageType.DEFEND_QUESTION,
-            { card: card, attackerName: attacker.name, isJuedou: true }
+            { card: card, attackId: attackId, attackerName: attacker.name, isJuedou: true }
           ));
           self._flashPhase('⚔️ 等待 ' + defender.name + ' 答题（决斗）...');
         } else if (route.localResolve) {
           self._flashPhase('⚔️ ' + attacker.name + ' 对你使用' + (card.cardName || '决斗') + '！无法防御，请答题');
           MediCard.QuestionPopup.show(card, function(result) {
+            if (self._attackInProgress !== jdCtx) return;
             self._trackAnswer(result, card);
             self._resolveMpJuedouAnswer(result.correct);
           }, '你');
@@ -5779,7 +5785,7 @@
 
       if (this._isMultiplayer) {
         this._sendSync({
-          type: 'action_result', sourceIdx: ctx.attackerIndex,
+          type: 'action_result', sourceIdx: ctx.attackerIndex, attackId: ctx.attackId,
           data: { cardType: 'juedou', cardIndex: ctx.cardIndex, targetIdx: ctx.defenderIndex,
                   damage: inflictedDamage, defenderAlive: ctx.defender.alive, defenderCorrect: defenderCorrect }
         });
@@ -5803,7 +5809,15 @@
     },
 
     /** Client: show defend question received from host */
+    _dismissDefendQuestion: function(attackId) {
+      if (!attackId || this._defendQuestionId !== attackId) return;
+      this._defendQuestionId = null;
+      if (MediCard.QuestionPopup.dismiss) MediCard.QuestionPopup.dismiss();
+    },
+
     _onDefendQuestion: function(data) {
+      if (data.attackId && this._defendQuestionId === data.attackId) return;
+      this._defendQuestionId = data.attackId;
       var card = data.card;
       var isJuesha = data.isJuesha || false;
       var isJuedou = data.isJuedou || false;
@@ -5811,11 +5825,14 @@
       var label = isJuesha ? '💀 绝杀' : (isJuedou ? '⚔️ 决斗' : '🛡️');
       this._flashPhase(label + ' ' + data.attackerName + ' 对你使用' + (card.cardName || '杀') + '！请答题');
       MediCard.QuestionPopup.show(card, function(result) {
+        if (self._defendQuestionId !== data.attackId) return;
+        self._defendQuestionId = null;
         self._trackAnswer(result, card);
         // FIX-P1-002: Send choice only — host validates against card.correctAnswers
         MediCard.NetworkClient.send(MediCard.SyncProtocol.pack(
           MediCard.SyncProtocol.MessageType.DEFEND_ANSWER,
-          { choice: result.choice, isJuesha: isJuesha, isJuedou: isJuedou }
+          { choice: result.originalChoice !== undefined ? result.originalChoice : result.choice,
+            attackId: data.attackId, isJuesha: isJuesha, isJuedou: isJuedou }
         ));
         self._flashPhase('⏳ 等待结果...');
       }, '你');
@@ -5875,6 +5892,7 @@
         this._sendSync({
           type: 'action_result',
           sourceIdx: ctx.attackerIndex,
+          attackId: ctx.attackId,
           data: {
             cardType: 'attack',
             cardIndex: ctx.cardIndex,
@@ -5908,20 +5926,27 @@
     },
 
     /** Host: handle 绝杀 intent in multiplayer */
-    _handleJueshaMpIntent: function(attackerIdx, cardIndex, targetIdx) {
+    _handleJueshaMpIntent: function(attackerIdx, cardIndex, targetIdx, attackId) {
+      if (this._jueshaPlayedThisTurn) return;
+      if (this._attackInProgress || !Number.isInteger(cardIndex) || cardIndex < 0 ||
+          !Number.isInteger(targetIdx) || attackerIdx === targetIdx) return;
       var gs = MediCard.GameState;
       var attacker = gs.players[attackerIdx];
       var defender = gs.players[targetIdx];
       if (!attacker || !defender || !attacker.alive || !defender.alive) return;
 
       var card = attacker.hand[cardIndex];
-      if (!card) return;
+      if (!card || card.cardType !== 'juesha') return;
+      attackId = attackId || MediCard.SyncProtocol.nextId();
 
       // Remove juesha card from attacker's hand
       attacker.hand.splice(cardIndex, 1);
+      var previousJueshaPlayed = this._jueshaPlayedThisTurn;
       this._jueshaPlayedThisTurn = true;
 
       this._attackInProgress = {
+        attackId: attackId,
+        previousJueshaPlayed: previousJueshaPlayed,
         type: 'juesha', card: card, attacker: attacker, defender: defender,
         attackerIndex: attackerIdx, defenderIndex: targetIdx, cardIndex: cardIndex
       };
@@ -5939,7 +5964,7 @@
         this._flashPhase('💀 绝杀！' + defender.name + '无守卫牌，直接扣血');
         var dmgResult = this._applyMpJueshaDamage(attacker, defender);
         this._sendSync({
-          type: 'action_result', sourceIdx: attackerIdx,
+          type: 'action_result', sourceIdx: attackerIdx, attackId: attackId,
           data: { cardType: 'juesha', cardIndex: cardIndex, targetIdx: targetIdx, damage: dmgResult.actual, defenderAlive: defender.alive }
         });
         this._attackInProgress = null;
@@ -5956,16 +5981,16 @@
       // Has defense → consume 1 defense card, force answer
       var defCard = defender.hand.splice(defIdx, 1)[0];
       gs.discardPile.push(defCard);
+      this._attackInProgress.defenseCard = defCard;
+      this._attackInProgress.defenseCardIndex = defIdx;
       this._flashPhase('🛡️ 绝杀！' + defender.name + '消耗守卫牌抵挡，但必须答题！');
 
       // Host-side safety timeout
       var jsCtx = this._attackInProgress;
+      if (targetIdx === this._myPlayerIndex) this._defendQuestionId = attackId;
       this._attackTimeout = setTimeout(function() {
         if (self._attackInProgress === jsCtx) {
-          MediCard.MPAttackResolver.clearHostGuard(self);
-          self._flashPhase('⏰ 防守方超时未应答，绝杀自动取消');
-          self._sendSync({ type: 'attack_cancel', sourceIdx: self._myPlayerIndex });
-          self._updateDisplay();
+          MediCard.MPAttackResolver.cancelAttack(self, 'defender_timeout');
         }
       }, 45000);
 
@@ -5973,6 +5998,7 @@
       if (defender === gs.players[this._myPlayerIndex]) {
         // Host IS the defender — show question locally
         MediCard.QuestionPopup.show(card, function(result) {
+          if (self._attackInProgress !== jsCtx) return;
           self._trackAnswer(result, card);
           self._resolveMpJueshaAnswer(result.correct);
         }, '你');
@@ -5983,18 +6009,19 @@
         var jsAnswered = Math.random() < jsCorrect;
         self._logAction('🤖 ' + (defender.name || 'AI') + ' 绝杀答题' + (jsAnswered ? '正确' : '错误'));
         self._trackAnswer({ correct: jsAnswered }, card);
-        setTimeout(function() { self._resolveMpJueshaAnswer(jsAnswered); }, 500 + Math.random() * 1500);
+        setTimeout(function() { if (self._attackInProgress === jsCtx) self._resolveMpJueshaAnswer(jsAnswered); }, 500 + Math.random() * 1500);
       } else {
         // Defender is remote — validate route, then send question
         var route = MediCard.MPAttackResolver.validateDefenderRoute(self, targetIdx);
         if (route.ok) {
           route.conn.send(MediCard.SyncProtocol.pack(
             MediCard.SyncProtocol.MessageType.DEFEND_QUESTION,
-            { card: card, attackerName: attacker.name, isJuesha: true }
+            { card: card, attackId: attackId, attackerName: attacker.name, isJuesha: true }
           ));
           self._flashPhase('💀 等待 ' + defender.name + ' 答题（绝杀）...');
         } else if (route.localResolve) {
           MediCard.QuestionPopup.show(card, function(result) {
+            if (self._attackInProgress !== jsCtx) return;
             self._trackAnswer(result, card);
             self._resolveMpJueshaAnswer(result.correct);
           }, '你');
@@ -6022,8 +6049,9 @@
 
       if (this._isMultiplayer) {
         this._sendSync({
-          type: 'action_result', sourceIdx: ctx.attackerIndex,
+          type: 'action_result', sourceIdx: ctx.attackerIndex, attackId: ctx.attackId,
           data: { cardType: 'juesha', cardIndex: ctx.cardIndex, targetIdx: ctx.defenderIndex,
+                  defenseCardIndex: ctx.defenseCardIndex,
                   damage: inflictedDamage, defenderAlive: ctx.defender.alive, defenderCorrect: defenderCorrect }
         });
       }

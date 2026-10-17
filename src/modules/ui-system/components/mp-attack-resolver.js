@@ -31,6 +31,10 @@
       // Validate
       if (!battle._turnActive) return;
       if (battle._attackInProgress) return;
+      if (card.cardType === 'juesha' && battle._jueshaPlayedThisTurn) {
+        battle._flashPhase('💀 本回合已出过绝杀，无法再次使用');
+        return;
+      }
 
       var gs = MediCard.GameState;
       var target = gs.players[targetIdx];
@@ -39,8 +43,7 @@
         return;
       }
 
-      // Set per-turn limits
-      if (card.cardType === 'juesha') battle._jueshaPlayedThisTurn = true;
+      var attackId = MediCard.SyncProtocol.nextId();
 
       // ── Client-side guard + safety timeout ──
       // Only needed when client sends intent and waits for host response.
@@ -48,6 +51,8 @@
       if (!battle._isHost) {
         var attackCtx = {
           type: 'waiting_defend',
+          attackId: attackId,
+          cardType: card.cardType,
           cardIndex: cardIdx,
           targetIdx: targetIdx,
           startedAt: Date.now()
@@ -61,9 +66,8 @@
                 'Attack stalled for ' + self.TIMEOUT_MS + 'ms — auto-clearing',
                 { cardIdx: cardIdx, targetIdx: targetIdx });
             }
-            battle._attackInProgress = null;
-            battle._flashPhase('⏰ 对手超时未应答，攻击取消');
-            battle._sendSync({ type: 'attack_cancel', cardIndex: cardIdx, targetIdx: targetIdx, sourceIdx: battle._myPlayerIndex });
+            battle._flashPhase('⏰ 正在等待房主确认攻击取消');
+            battle._sendSync({ type: 'attack_cancel', attackId: attackId, cardIndex: cardIdx, targetIdx: targetIdx, sourceIdx: battle._myPlayerIndex });
             battle._updateDisplay();
           }
         }, self.TIMEOUT_MS);
@@ -87,16 +91,17 @@
         if (attackerIdx < 0) attackerIdx = battle._myPlayerIndex;
         // Host routes directly
         if (card.cardType === 'juesha') {
-          battle._handleJueshaMpIntent(attackerIdx, cardIdx, targetIdx);
+          battle._handleJueshaMpIntent(attackerIdx, cardIdx, targetIdx, attackId);
         } else if (card.cardType === 'juedou') {
-          battle._handleJuedouMpIntent(attackerIdx, cardIdx, targetIdx);
+          battle._handleJuedouMpIntent(attackerIdx, cardIdx, targetIdx, attackId);
         } else {
-          battle._handleAttackIntent(attackerIdx, cardIdx, targetIdx, scalpelBonus);
+          battle._handleAttackIntent(attackerIdx, cardIdx, targetIdx, scalpelBonus, attackId);
         }
       } else {
         // Client sends intent to host
         battle._sendSync({
           type: 'offensive_intent',
+          attackId: attackId,
           cardType: card.cardType,
           cardIndex: cardIdx,
           targetIdx: targetIdx,
@@ -113,6 +118,9 @@
      * Clears timeout and guard on the host side.
      */
     clearHostGuard: function(battle) {
+      if (battle._attackInProgress && battle._dismissDefendQuestion) {
+        battle._dismissDefendQuestion(battle._attackInProgress.attackId);
+      }
       if (battle._attackTimeout) {
         clearTimeout(battle._attackTimeout);
         battle._attackTimeout = null;
@@ -151,6 +159,17 @@
         return { ok: false, reason: 'target_is_host', localResolve: true };
       }
       var conns = MediCard.NetworkHost._connections;
+      var target = gs.players[targetIdx];
+      if (target && target.peerId) {
+        var direct = (conns || []).find(function(c) { return c.peer === target.peerId && c.open; });
+        if (direct) return { ok: true, conn: direct };
+        var relay = MediCard.RelayTransport;
+        var relayId = target.relayId || target.peerId;
+        if (relay && relay.isOpen() && relay.hasPeer(relayId)) {
+          return { ok: true, conn: { send: function(raw) { relay.sendTo(relayId, raw); } } };
+        }
+        return { ok: false, reason: 'player_unreachable' };
+      }
       if (!conns || conns.length === 0) {
         return { ok: false, reason: 'no_connections' };
       }
@@ -175,6 +194,19 @@
      * Called when _handleAttackIntent can't send DEFEND_QUESTION.
      */
     cancelAttack: function(battle, reason, defenderName) {
+      var ctx = battle._attackInProgress;
+      if (!ctx || !ctx.card || !ctx.attacker) return;
+      var discard = MediCard.GameState.discardPile;
+      // Cards are reserved until resolution. Clients still have these cards.
+      var discarded = discard.indexOf(ctx.card);
+      if (discarded >= 0) discard.splice(discarded, 1);
+      ctx.attacker.hand.splice(ctx.cardIndex, 0, ctx.card);
+      if (ctx.defenseCard) {
+        var defenseDiscarded = discard.indexOf(ctx.defenseCard);
+        if (defenseDiscarded >= 0) discard.splice(defenseDiscarded, 1);
+        ctx.defender.hand.splice(ctx.defenseCardIndex, 0, ctx.defenseCard);
+      }
+      if (ctx.type === 'juesha') battle._jueshaPlayedThisTurn = ctx.previousJueshaPlayed || false;
       if (MediCard.BattleLogger) {
         MediCard.BattleLogger.log('ATTACK_CANCEL', 'mp_attack_resolver',
           'Attack cancelled: ' + reason);
@@ -182,11 +214,21 @@
       this.clearHostGuard(battle);
       battle._flashPhase('⚠️ 无法联系 ' + (defenderName || '对手') + '，攻击取消');
       battle._sendSync({
-        type: 'action_result',
-        error: reason,
-        sourceIdx: battle._myPlayerIndex
+        type: 'attack_cancel',
+        reason: reason,
+        sourceIdx: ctx.attackerIndex,
+        attackId: ctx.attackId
       });
       battle._updateDisplay();
+      if (battle._aiPlayCallback) {
+        var next = battle._aiPlayCallback;
+        battle._aiPlayCallback = null;
+        if (reason !== 'turn_end') {
+          battle._trackTimer(setTimeout(function() {
+            if (MediCard.GameState.currentPlayerIndex === ctx.attackerIndex && battle._turnActive) next();
+          }, 600));
+        }
+      }
     }
   };
 

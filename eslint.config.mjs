@@ -37,6 +37,7 @@ export default [
   {
     files: ['**/*.test.js', '**/*.spec.js', 'tests/**/*.js'],
     languageOptions: {
+      sourceType: 'module',
       globals: {
         ...globals.browser,
         ...globals.vitest,

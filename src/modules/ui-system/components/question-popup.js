@@ -129,8 +129,21 @@
         var newLetter = newLetters.charAt(idx);
         var display = newLetter + '. ' + opt.text;
         if (opt.isCorrect) newCorrectAnswers.push(newLetter);
-        return { letter: newLetter, text: opt.text, display: display };
+        return { letter: newLetter, originalLetter: opt.letter, text: opt.text, display: display };
       });
+      // Display letters change when shuffled; network answers use original identities.
+      var answerCallback = onAnswer;
+      onAnswer = function(result) {
+        if (typeof result.choice === 'string') {
+          result.originalChoice = result.choice.split(',').map(function(letter) {
+            var option = options.find(function(o) { return o.letter === letter; });
+            return option ? option.originalLetter : letter;
+          }).join(',');
+        } else {
+          result.originalChoice = result.choice;
+        }
+        if (answerCallback) answerCallback(result);
+      };
       var answered = false;
       var selectedAnswers = {};  // letter -> true for multi-select
 
@@ -198,7 +211,7 @@
               });
             }
 
-            _showAnswerFeedback(optionsEl, isCorrect, card, overlay, onAnswer, choice, answererLabel);
+            _showAnswerFeedback(optionsEl, isCorrect, card, overlay, onAnswer, choice, answererLabel, newCorrectAnswers);
 
             // Play feedback sound
             if (MediCard.Audio) {
@@ -246,7 +259,7 @@
           });
           submitBtn.style.display = 'none';
 
-          _showAnswerFeedback(optionsEl, isCorrect, card, overlay, onAnswer, selectedLetters.join(','), answererLabel);
+          _showAnswerFeedback(optionsEl, isCorrect, card, overlay, onAnswer, selectedLetters.join(','), answererLabel, newCorrectAnswers);
 
           if (MediCard.Audio) {
             isCorrect ? MediCard.Audio.playCorrect() : MediCard.Audio.playWrong();
@@ -258,7 +271,8 @@
       // Timer
       var timerStarted = false;
       var startTimer = function() {
-        if (timerStarted) return;
+        if (MediCard.QuestionPopup._modalEl !== overlay || !overlay.isConnected) return;
+        if (timerStarted || answered) return;
         timerStarted = true;
         MediCard.TimerComponent.start(timeLimit, function(remaining) {
           var timerEl = document.getElementById('question-timer');
@@ -271,7 +285,7 @@
             answered = true;
             var exp = document.createElement('div');
             exp.style.cssText = 'margin-top:12px;padding:10px;background:rgba(239,68,68,0.1);border-radius:6px;font-size:12px;color:var(--accent-red);';
-            exp.innerHTML = '⏰ 时间到！正确答案：<strong>' + card.correctAnswers.join('、') + '</strong><br>' + (card.explanation || '');
+            exp.innerHTML = '⏰ 时间到！正确答案：<strong>' + newCorrectAnswers.join('、') + '</strong><br>' + (card.explanation || '');
             optionsEl.appendChild(exp);
 
             var contBtn = document.createElement('button');
@@ -366,6 +380,13 @@
       document.body.appendChild(overlay);
     },
 
+    dismiss() {
+      if (this._modalEl) this._modalEl.remove();
+      this._modalEl = null;
+      this._resolveCallback = null;
+      MediCard.TimerComponent.stop();
+    },
+
     _removeExisting() {
       if (this._modalEl && this._modalEl.parentNode) {
         this._modalEl.remove();
@@ -376,10 +397,10 @@
   };
 
   /** Shared answer feedback: explanation + continue + bookmark */
-  function _showAnswerFeedback(optionsEl, isCorrect, card, overlay, onAnswer, choice, answererLabel) {
+  function _showAnswerFeedback(optionsEl, isCorrect, card, overlay, onAnswer, choice, answererLabel, displayedAnswers) {
     var exp = document.createElement('div');
     exp.style.cssText = 'margin-top:12px;padding:10px;background:rgba(0,0,0,0.2);border-radius:6px;font-size:12px;color:var(--text-secondary);line-height:1.5;';
-    var correctStr = (card.correctAnswers || []).join('、');
+    var correctStr = (displayedAnswers || card.correctAnswers || []).join('、');
     exp.innerHTML = '<strong>' + (isCorrect ? '✅ 回答正确！' : '❌ 回答错误') + '</strong>' +
       (!isCorrect ? ' <span style="color:#fbbf24;">正确答案：' + correctStr + '</span>' : '') +
       '<br>' + (card.explanation || '') +

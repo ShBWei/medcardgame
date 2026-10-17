@@ -9,7 +9,8 @@
    * Lazy-load the game bundle (battle, multiplayer, study, etc.)
    * Called on first navigation to any game screen.
    */
-  MediCard._gameBundleReady = false;
+  // Development HTML already loads individual modules before this bootstrap.
+  MediCard._gameBundleReady = !!MediCard.ScreenBattle;
   MediCard._gameBundleLoading = false;
   MediCard._gameBundleQueue = [];
 

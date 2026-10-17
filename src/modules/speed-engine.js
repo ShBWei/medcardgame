@@ -186,14 +186,19 @@
      * via _renderHeaderHTML() — these are pure string ops and take microseconds.
      */
     _buildAndCache: function(study, q, questionIndex) {
+      if (!q) return null;
       var cacheKey = this._cacheKey(study._currentSubject, questionIndex);
-      if (this._memCache.has(cacheKey)) return this._memCache.get(cacheKey);
+      var existing = this._memCache.get(cacheKey);
+      if (existing && existing.question === q) return existing;
 
       // Parse options once
       var rawOpts = q.options || q.opts || [];
       var correctRaw = q.correctAnswers || q.ans || [];
       var parsed = study._parseOptions(rawOpts, correctRaw);
-      var shuffled = study._shuffleOptions(parsed);
+      var orderKey = q.id || (study._currentSubject + '_' + questionIndex);
+      if (!study._optionOrders) study._optionOrders = {};
+      var shuffled = study._optionOrders[orderKey] || study._shuffleOptions(parsed);
+      study._optionOrders[orderKey] = shuffled;
       var labels = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
       // Build shuffled options array
@@ -239,6 +244,7 @@
         '</div>';
 
       var cached = {
+        question: q,
         bodyHTML: bodyHTML,
         shuffledOptions: shuffledOptions,
         id: qId,
@@ -366,6 +372,7 @@
       this._multiSelected = {};
 
       mainArea.addEventListener('click', function(e) {
+        if (!self._delegationActive) return;
         var isMulti = study._currentIsMulti;
 
         // Multi-submit button click
@@ -567,7 +574,7 @@
           // Try cached HTML first
           if (self._enabled && this._questions && this._questions.length && this._currentSubject) {
             var cached = self._memGet(this._currentSubject, this._questionIndex);
-            if (cached && cached.bodyHTML) {
+            if (cached && cached.bodyHTML && cached.question === this._questions[this._questionIndex]) {
               self._preloadHits++;
               // Delegate now active — wrap _attachQuestionEvents so original
               // individual handlers don't double-fire with delegation.
@@ -583,7 +590,7 @@
           // Delegation will activate on the first cache hit.
           self._delegationActive = false;
           var result = self._originals._renderQuestion.apply(this, arguments);
-          if (self._enabled && this._questions && this._questions.length) {
+          if (self._enabled && this._questions && this._questions[this._questionIndex]) {
             self._questionDisplayTime = Date.now();
             self._buildAndCache(this, this._questions[this._questionIndex], this._questionIndex);
             self._preloadAhead(this);
@@ -596,6 +603,7 @@
       if (!this._originals.startSubject) {
         this._originals.startSubject = study.startSubject;
         study.startSubject = function(subjectId) {
+          self._memCache.clear();
           var result = self._originals.startSubject.apply(this, arguments);
           if (self._enabled && this._questions && this._questions.length) {
             var ref = this;

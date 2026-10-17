@@ -15,9 +15,13 @@
     _reconnectTimer: null,
     _handlers: { open: [], data: [], close: [], error: [], peerJoin: [], peerLeave: [] },
     _sendQueue: [],
+    _peers: [],
+
+    hasPeer: function(id) { return this._open && this._peers.indexOf(id) >= 0; },
 
     connect(roomCode, clientId) {
       if (this._ws && (this._ws.readyState === 0 || this._ws.readyState === 1)) {
+        this._ws.onclose = null;
         this._ws.close();
       }
       this._room = String(roomCode).toUpperCase();
@@ -52,6 +56,7 @@
         try { msg = JSON.parse(event.data); } catch(e) { return; }
         switch (msg.type) {
           case 'relay_joined':
+            this._peers = msg.clients || [];
             this._open = true;
             this._reconnecting = false;
             // Flush queued messages
@@ -61,9 +66,11 @@
             this._emit('open', { clients: msg.clients, hostId: msg.hostId });
             break;
           case 'relay_client_joined':
+            if (this._peers.indexOf(msg.clientId) < 0) this._peers.push(msg.clientId);
             this._emit('peerJoin', { clientId: msg.clientId });
             break;
           case 'relay_client_left':
+            this._peers = this._peers.filter(function(id) { return id !== msg.clientId; });
             this._emit('peerLeave', { clientId: msg.clientId });
             break;
           case 'relay_data':
@@ -146,12 +153,17 @@
       this._reconnecting = false;
       if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
       if (this._ws) {
+        this._ws.onclose = null;
+        this._ws.onmessage = null;
+        this._ws.onopen = null;
         try { this._ws.send(JSON.stringify({ type: 'relay_leave', room: this._room })); } catch(e) {}
         this._ws.close();
         this._ws = null;
       }
       this._open = false;
       this._sendQueue = [];
+      this._peers = [];
+      this._handlers = { open: [], data: [], close: [], error: [], peerJoin: [], peerLeave: [] };
     },
 
     _scheduleReconnect() {
