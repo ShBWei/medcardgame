@@ -11,7 +11,7 @@ const ROOT = path.join(__dirname, '..');
 const SRC = path.join(ROOT, 'src');
 const DIST = path.join(ROOT, 'dist');
 
-const VERSION = '6.5.5';
+const VERSION = '6.5.6';
 
 // ── CSS files in dependency order (from index.html) ──
 const CSS_FILES = [
@@ -111,6 +111,7 @@ const SUBJECT_FILES = [
   'biochemistry.js',
   'physiology.js',
   'pathology.js',
+  'pathophysiology.js',
   'histology-embryology.js',
   'systematic-anatomy.js',
   'immunology.js',
@@ -165,8 +166,12 @@ function minifyJS(filePath, label) {
   const preSize = (fs.statSync(filePath).size / 1024).toFixed(1);
   console.log('  ' + label + ' pre-minify: ' + preSize + ' KB');
   try {
-    const { execSync } = require('child_process');
-    execSync('npx --yes terser "' + filePath + '" -c -m -o "' + filePath + '"', {
+    const { execSync, execFileSync } = require('child_process');
+    if (process.env.TERSER_CLI) {
+      execFileSync(process.execPath, [process.env.TERSER_CLI, filePath, '-c', '-m', '-o', filePath], {
+        stdio: 'pipe', timeout: 120000
+      });
+    } else execSync('npx --yes terser "' + filePath + '" -c -m -o "' + filePath + '"', {
       stdio: 'pipe', timeout: 120000
     });
     const postSize = (fs.statSync(filePath).size / 1024).toFixed(1);
@@ -232,6 +237,13 @@ function build() {
     }
   }
   console.log('\n  Subjects: ' + SUBJECT_FILES.length + ' files copied\n');
+
+  // Keep source scans available for formulas and self-review; never bundle them into JS.
+  const sourcePages = path.join(SRC, 'assets/pathophysiology');
+  if (fs.existsSync(sourcePages)) {
+    fs.cpSync(sourcePages, path.join(DIST, 'src/assets/pathophysiology'), { recursive: true });
+  }
+  fs.copyFileSync(path.join(ROOT, 'sw.js'), path.join(DIST, 'sw.js'));
 
   // 6. Write index.html — only preloads core bundle; game bundle loads on demand
   const html = `<!DOCTYPE html>

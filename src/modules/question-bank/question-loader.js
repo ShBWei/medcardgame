@@ -3,6 +3,7 @@
  * Dynamic lazy loading with chunked preload buffer.
  * Subject files fetched on-demand instead of upfront script tags.
  */
+/* global LZString */
 (function() {
   var MediCard = window.MediCard || {};
 
@@ -77,8 +78,7 @@
         return;
       }
       // Not loaded and not loading — trigger fetch and queue
-      this._loadingSubjects[subjectId] = [callback];
-      this._fetchSubject(subjectId);
+      this._fetchSubject(subjectId, callback);
     },
 
     _allSelectedLoaded: function() {
@@ -222,7 +222,6 @@
             startIdx = text.indexOf(startMarker);
             if (startIdx >= 0) {
               var eqIdx = text.indexOf('=', startIdx);
-              startMarker = text.substring(startIdx, eqIdx + 1);
               startIdx = eqIdx + 1;
             }
           }
@@ -238,7 +237,16 @@
           // Find matching ]; — count brackets
           var depth = 0;
           var arrayEnd = -1;
+          var inString = false;
+          var escaped = false;
           for (var i = arrayStart; i < text.length; i++) {
+            if (inString) {
+              if (escaped) escaped = false;
+              else if (text[i] === '\\') escaped = true;
+              else if (text[i] === '"') inString = false;
+              continue;
+            }
+            if (text[i] === '"') { inString = true; continue; }
             if (text[i] === '[') depth++;
             else if (text[i] === ']') { depth--; if (depth === 0) { arrayEnd = i + 1; break; } }
           }
@@ -323,8 +331,11 @@
       return [];
     },
 
-    getSubject(subjectId) {
+    getSubject(subjectId, options) {
       var questions = this._cache[subjectId] || this.loadSubject(subjectId);
+      if (!options || !options.includeSubjective) {
+        questions = questions.filter(function(q) { return !q.studyOnly && q.questionType !== 'subjective'; });
+      }
       // Apply chapter filter if active for this subject
       var filter = this._chapterFilters[subjectId];
       if (questions && questions.length && filter && filter.length > 0) {
@@ -339,12 +350,13 @@
     },
 
     /** Get unique chapters for a subject (from loaded data). Returns [] if no chapter field. */
-    getChapters: function(subjectId) {
+    getChapters: function(subjectId, options) {
       var questions = this._cache[subjectId];
       if (!questions || !questions.length) return [];
       var seen = {};
       var chapters = [];
       for (var i = 0; i < questions.length; i++) {
+        if ((!options || !options.includeSubjective) && (questions[i].studyOnly || questions[i].questionType === 'subjective')) continue;
         var ch = questions[i].chapter;
         if (ch && !seen[ch]) { seen[ch] = true; chapters.push(ch); }
       }
@@ -399,11 +411,11 @@
       for (var i = 0; i < ids.length; i++) {
         var id = ids[i];
         var questions = this.getSubject(id);
-        if (!questions || !questions.length) {
+        if ((!questions || !questions.length) && !this._loadedSubjects.has(id)) {
           // Use metadata counts if questions not loaded yet
           var meta = (MediCard.Config && MediCard.Config.subjectMeta) ? MediCard.Config.subjectMeta[id] : null;
-          stats.total += meta ? (meta.questionCount || 0) : 0;
-          stats.bySubject[id] = meta ? (meta.questionCount || 0) : 0;
+          stats.total += meta ? (meta.battleQuestionCount == null ? meta.questionCount || 0 : meta.battleQuestionCount) : 0;
+          stats.bySubject[id] = meta ? (meta.battleQuestionCount == null ? meta.questionCount || 0 : meta.battleQuestionCount) : 0;
           continue;
         }
         stats.total += questions.length;
@@ -419,9 +431,9 @@
 
     /** Get question count for a subject without loading the full data */
     getSubjectCount: function(subjectId) {
-      if (this._cache[subjectId]) return this._cache[subjectId].length;
+      if (this._cache[subjectId]) return this._cache[subjectId].filter(function(q) { return !q.studyOnly && q.questionType !== 'subjective'; }).length;
       var meta = (MediCard.Config && MediCard.Config.subjectMeta) ? MediCard.Config.subjectMeta[subjectId] : null;
-      return meta ? (meta.questionCount || 0) : 0;
+      return meta ? (meta.battleQuestionCount == null ? meta.questionCount || 0 : meta.battleQuestionCount) : 0;
     },
 
     /** Build reverse index for a subject's questions: qid → { subjectId, index } */

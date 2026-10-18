@@ -6,7 +6,7 @@
  * Registered by speed-engine.js (gracefully degrades if SW unsupported).
  */
 
-var CACHE_NAME = 'medicard-v1';
+var CACHE_NAME = 'medicard-v6.5.6';
 
 // Static assets to pre-cache on install
 var PRE_CACHE = [

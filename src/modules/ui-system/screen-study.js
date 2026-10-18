@@ -303,7 +303,7 @@
         console.log('[Study] _maybeShowChapterPicker(' + subjectId + '): not loaded, waiting for onSubjectReady');
         this._showLoading();
         loader.onSubjectReady(subjectId, function() {
-          var chapters = loader.getChapters(subjectId);
+          var chapters = loader.getChapters(subjectId, { includeSubjective: true });
           console.log('[Study] _maybeShowChapterPicker(' + subjectId + '): onSubjectReady, chapters=' + (chapters ? chapters.length : 0));
           if (chapters && chapters.length > 0) {
             self._showChapterPicker(subjectId, chapters);
@@ -314,7 +314,7 @@
         return;
       }
 
-      var chapters = loader.getChapters(subjectId);
+      var chapters = loader.getChapters(subjectId, { includeSubjective: true });
       console.log('[Study] _maybeShowChapterPicker(' + subjectId + '): loaded, chapters=' + (chapters ? chapters.length : 0));
       if (chapters && chapters.length > 0) {
         this._showChapterPicker(subjectId, chapters);
@@ -498,6 +498,9 @@
       this._questions = this._sessionSize ? queue.slice(0, this._sessionSize) : queue;
       this._questionIndex = 0;
       this._optionOrders = {};
+      this._selfReviewStates = {};
+      this._sessionSelfReviewed = 0;
+      this._sessionSelfMastered = 0;
     },
 
     /** Enter question session for a subject */
@@ -515,7 +518,7 @@
       this._stopTimer();
       if (this._fastAdvanceTimeout) { clearTimeout(this._fastAdvanceTimeout); this._fastAdvanceTimeout = null; }
 
-      var questions = MediCard.QuestionLoader.getSubject(subjectId);
+      var questions = MediCard.QuestionLoader.getSubject(subjectId, { includeSubjective: true });
       console.log('[Study] startSubject(' + subjectId + '): getSubject returned ' + (questions ? questions.length : 0) + ' questions, _chapterFilters=' + JSON.stringify(MediCard.QuestionLoader._chapterFilters));
       if (questions && questions.length > 0) {
         this._prepareSession(questions);
@@ -526,7 +529,7 @@
       // Subject not loaded yet — use per-subject callback (only wait for THIS subject)
       this._showLoading();
       MediCard.QuestionLoader.onSubjectReady(subjectId, function() {
-        var qs = MediCard.QuestionLoader.getSubject(subjectId);
+        var qs = MediCard.QuestionLoader.getSubject(subjectId, { includeSubjective: true });
         if (qs && qs.length > 0) {
           if (self._currentSubject !== subjectId) return;
           self._prepareSession(qs);
@@ -989,6 +992,58 @@
 
     // ── Question rendering ──
 
+    /** Open-ended recall is self-rated, never automatically scored as a battle answer. */
+    _renderSubjective: function(q) {
+      var self = this;
+      this._stopTimer();
+      this._currentShuffled = [];
+      this._selfReviewStates = this._selfReviewStates || {};
+      var state = this._selfReviewStates[q.id] || (this._selfReviewStates[q.id] = { draft: '', revealed: false, rated: false });
+      this._answered = state.rated;
+      var idx = this._questionIndex;
+      var labels = { definition: '名词解释', 'short-answer': '问答题', essay: '论述题', experiment: '实验思考题' };
+      var reference = q.referenceAnswer || '原书未提供独立参考答案。请结合本节内容回顾，或与老师讨论后自评。';
+      var sourceLinks = (q.answerPages || q.sourcePages || []).map(function(page) {
+        return '<a href="src/assets/pathophysiology/page-' + String(page).padStart(3, '0') + '.webp" target="_blank" rel="noopener">原书第' + (page - 7) + '页</a>';
+      }).join(' · ');
+      document.getElementById('study-main-area').innerHTML =
+        '<div class="study-question-area study-self-review">' +
+        '<div class="study-question-header"><span>第' + (idx + 1) + '/' + this._questions.length + '题 · ' + (labels[q.sourceType] || '主观题') + '</span><span>自评 · 不计对战积分</span></div>' +
+        this._buildNavigatorHTML() +
+        '<div class="study-question-card"><div class="study-question-meta">' + _esc(q.chapter || '') + '</div><div class="study-question-text">' + _esc(q.question) + '</div></div>' +
+        '<label for="study-recall-draft">先用自己的话回忆要点，再对照原书</label>' +
+        '<textarea id="study-recall-draft" rows="5" placeholder="写下关键机制、因果链或容易遗漏的要点…">' + _esc(state.draft) + '</textarea>' +
+        (state.revealed ? '<div class="study-question-card" aria-live="polite"><strong>原书参考内容</strong><div class="study-reference-answer">' + _esc(reference) + '</div><p>' + sourceLinks + '</p></div>' +
+          '<p>自评只用于安排复习，不计入选择题正确率或排行榜。</p><div class="study-summary-actions">' +
+          '<button class="study-action-btn" id="study-self-review-again"' + (state.rated ? ' disabled' : '') + '>还需复习</button>' +
+          '<button class="study-action-btn primary" id="study-self-mastered"' + (state.rated ? ' disabled' : '') + '>已能独立说出要点</button></div>' :
+          '<button class="study-continue-btn" id="study-reveal-answer">回忆完成 · 查看参考内容</button>') +
+        (state.rated ? '<p role="status">已记录：' + (state.mastered ? '本次自评掌握' : '安排再次复习') + '</p>' : '') +
+        '<div class="study-toolbar"><button class="study-toolbar-btn" id="study-subjective-next">' + (state.rated ? '下一题 →' : '暂时跳过 →') + '</button></div></div>';
+      var draft = document.getElementById('study-recall-draft');
+      draft.addEventListener('input', function() { state.draft = draft.value; });
+      var reveal = document.getElementById('study-reveal-answer');
+      if (reveal) reveal.addEventListener('click', function() { state.revealed = true; self._renderSubjective(q); });
+      function rate(mastered) {
+        if (!state.revealed || state.rated) return;
+        state.rated = true;
+        state.mastered = mastered;
+        self._sessionSelfReviewed = (self._sessionSelfReviewed || 0) + 1;
+        if (mastered) self._sessionSelfMastered = (self._sessionSelfMastered || 0) + 1;
+        if (MediCard.FastLearnCore) MediCard.FastLearnCore.updateMemory(q.id, mastered, 0, '', q.knowledgePoint || '', self._currentSubject);
+        self._questionHistory.push({ index: idx, qId: q.id, selfReview: true, isCorrect: mastered });
+        self._renderSubjective(q);
+      }
+      var mastered = document.getElementById('study-self-mastered');
+      var again = document.getElementById('study-self-review-again');
+      if (mastered) mastered.addEventListener('click', function() { rate(true); });
+      if (again) again.addEventListener('click', function() { rate(false); });
+      document.getElementById('study-subjective-next').addEventListener('click', function() { self._questionIndex++; self._renderQuestion(); });
+      this._attachQuestionEvents(q.id, q);
+      this._updateHeaderForQuestion();
+      this._scrollNavigatorToCurrent();
+    },
+
     _renderQuestion: function() {
       if (!this._questions.length || this._questionIndex >= this._questions.length) {
         this._showSessionSummary();
@@ -998,6 +1053,8 @@
       this._answered = false;
       this._stopTimer();
       var q = this._questions[this._questionIndex];
+
+      if (q.questionType === 'subjective') { this._renderSubjective(q); return; }
 
       // Randomize options
       var rawOpts = q.options || q.opts || [];
@@ -1251,6 +1308,8 @@
     /** When navigating back to an already-answered question, show the result */
     _restoreAnsweredState: function(historyEntry) {
       var self = this;
+      var current = this._questions[this._questionIndex];
+      if (current && current.questionType === 'subjective') { this._renderSubjective(current); return; }
       // Highlight options
       var correctLetters = this._currentShuffled
         .filter(function(o) { return o.isCorrect; })
@@ -1314,6 +1373,12 @@
         if (exp) html += '💡 ' + _esc(exp);
         if (exp && ref) html += '<br>';
         if (ref) html += '<span class="study-exp-label exp-reference">📚 参考</span>' + _esc(ref);
+        if (q.subjectId === 'pathophysiology') {
+          var pages = Array.from(new Set((q.sourcePages || []).concat(q.answerPages || [])));
+          html += '<p>' + pages.filter(function(p) { return Number.isInteger(p) && p >= 8 && p <= 225; }).map(function(p) {
+            return '<a href="src/assets/pathophysiology/page-' + String(p).padStart(3, '0') + '.webp" target="_blank" rel="noopener">核对原书第' + (p - 7) + '页</a>';
+          }).join(' · ') + '</p>';
+        }
         html += '</div>';
       }
       return html;
@@ -1473,6 +1538,10 @@
                 pct >= 70 ? '很好！继续加油！' :
                 pct >= 50 ? '还不错，多复习错题哦~' :
                 '别灰心，每次刷题都是进步！';
+      if (total === 0) {
+        icon = '🌿';
+        msg = this._sessionSelfReviewed ? '已完成本轮主动回忆与自评，之后再复习一次，巩固记忆。' : '本轮尚未记录作答，可以重新开始练习。';
+      }
 
       var newWrongCount = this._sessionWrongIds.length;
       var totalWrongCount = MediCard.WrongQuestionBook ? MediCard.WrongQuestionBook.getCount('wrong') : 0;
@@ -1520,10 +1589,10 @@
           '<div class="study-summary-stats">' +
             '<div class="study-summary-stat">' +
               '<div class="study-stat-value">' + correct + ' / ' + total + '</div>' +
-              '<div class="study-stat-label">正确 / 总题数</div>' +
+              '<div class="study-stat-label">选择题正确 / 已答</div>' +
             '</div>' +
             '<div class="study-summary-stat">' +
-              '<div class="study-stat-value">' + pct + '%</div>' +
+              '<div class="study-stat-value">' + (total > 0 ? pct + '%' : '—') + '</div>' +
               '<div class="study-stat-label">正确率</div>' +
             '</div>' +
             '<div class="study-summary-stat">' +
@@ -1532,6 +1601,7 @@
             '</div>' +
           '</div>' +
           timingStatsHTML +
+          (this._sessionSelfReviewed ? '<p>主观题自评 ' + this._sessionSelfReviewed + ' 题 · 本次自评掌握 ' + (this._sessionSelfMastered || 0) + ' 题（不计正确率和积分）</p>' : '') +
           '<div class="study-summary-actions">' +
             '<button class="study-action-btn primary" id="study-retry">🔄 重新刷题</button>' +
             '<button class="study-action-btn primary" id="study-continue">🌿 开始下一组</button>' +
@@ -1545,7 +1615,7 @@
       document.getElementById('study-main-area').innerHTML = html;
       this._updateHeaderForSummary();
       this._attachSummaryEvents();
-      this._pushStudyScoreToLeaderboard(correct, total, pct);
+      if (total > 0) this._pushStudyScoreToLeaderboard(correct, total, pct);
     },
 
     /**
@@ -1633,6 +1703,9 @@
       var backBtn = document.getElementById('study-back-subjects');
 
       if (retryBtn) retryBtn.addEventListener('click', function() {
+        self._selfReviewStates = {};
+        self._sessionSelfReviewed = 0;
+        self._sessionSelfMastered = 0;
         self._optionOrders = {};
         self._questionTimes = [];
         self._questions = self._shuffleQuestions(self._questions);
@@ -1656,6 +1729,9 @@
           if (q) wrongQs.push(q);
         }
         if (wrongQs.length > 0) {
+          self._selfReviewStates = {};
+          self._sessionSelfReviewed = 0;
+          self._sessionSelfMastered = 0;
           self._questionHistory = [];
           self._optionOrders = {};
           self._questionTimes = [];
@@ -1861,7 +1937,7 @@
 
     _findQuestionById: function(qid) {
       // Search in current subject's question bank
-      var questions = MediCard.QuestionLoader.getSubject(this._currentSubject);
+      var questions = MediCard.QuestionLoader.getSubject(this._currentSubject, { includeSubjective: true });
       if (questions) {
         for (var i = 0; i < questions.length; i++) {
           if (questions[i].id === qid) return questions[i];
@@ -1870,7 +1946,7 @@
       // Search all loaded subjects
       var allSubjects = MediCard.Config.subjectCategories[0].subjects;
       for (var s = 0; s < allSubjects.length; s++) {
-        var qs = MediCard.QuestionLoader.getSubject(allSubjects[s]);
+        var qs = MediCard.QuestionLoader.getSubject(allSubjects[s], { includeSubjective: true });
         if (qs) {
           for (var j = 0; j < qs.length; j++) {
             if (qs[j].id === qid) return qs[j];

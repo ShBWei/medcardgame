@@ -7,7 +7,7 @@
   var MediCard = window.MediCard || {};
 
   MediCard.Config = {
-    version: '6.5.5',
+    version: '6.5.6',
     appName: 'MediCard 医杀',
 
     get mode() {
@@ -216,15 +216,15 @@
         id: 'basic-medicine',
         name: '基础医学',
         expandable: false,
-        subjects: ['cell-biology', 'biochemistry', 'physiology', 'pathology', 'histology-embryology', 'systematic-anatomy', 'immunology', 'microbiology']
+        subjects: ['cell-biology', 'biochemistry', 'physiology', 'pathology', 'pathophysiology', 'histology-embryology', 'systematic-anatomy', 'immunology', 'microbiology']
       }
     ],
 
     quickSelectPresets: [
       { name: '形态学包', subjects: ['cell-biology', 'histology-embryology', 'systematic-anatomy'], icon: '🔬' },
-      { name: '功能学包', subjects: ['physiology', 'biochemistry'], icon: '⚡' },
+      { name: '功能学包', subjects: ['physiology', 'biochemistry', 'pathophysiology'], icon: '⚡' },
       { name: '病原防御包', subjects: ['pathology', 'immunology', 'microbiology'], icon: '🛡️' },
-      { name: '全部8科', subjects: null, icon: '🏆' }
+      { name: '全部科目', subjects: null, icon: '🏆' }
     ],
 
     subjectMeta: {
@@ -232,6 +232,7 @@
       'biochemistry':          { name: '生物化学',     icon: '⚗️', color: '#8b5cf6', questionCount: 1258 },
       'physiology':            { name: '生理学',       icon: '❤️', color: '#f43f5e', questionCount: 909 },
       'pathology':             { name: '病理学',       icon: '🦠', color: '#ef4444', questionCount: 740 },
+      'pathophysiology':       { name: '病理生理学',   icon: '🩺', color: '#e8796a', questionCount: 1243, battleQuestionCount: 858 },
       'histology-embryology':  { name: '组织与胚胎学', icon: '🔬', color: '#10b981', questionCount: 578 },
       'systematic-anatomy':    { name: '系统解剖学',   icon: '🦴', color: '#f97316', questionCount: 1981 },
       'immunology':            { name: '免疫学',       icon: '🛡️', color: '#3b82f6', questionCount: 1543 },

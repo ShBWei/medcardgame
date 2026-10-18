@@ -35,6 +35,53 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
+it('requires revealing a subjective answer before self-rating and never awards leaderboard points', () => {
+  const { study, mc } = setup();
+  const q = { id: 'essay-1', questionType: 'subjective', studyOnly: true, question: '解释缺氧', referenceAnswer: '原书答案', options: [], correctAnswers: [] };
+  study._questions = [q];
+  study._questionIndex = 0;
+  study._selfReviewStates = {};
+  study._questionHistory = [];
+  study._updateHeaderForQuestion = vi.fn();
+  study._scrollNavigatorToCurrent = vi.fn();
+  study._sessionSelfReviewed = 0;
+  study._sessionSelfMastered = 0;
+  study._pushCorrectToLeaderboard = vi.fn();
+  study._renderQuestion();
+  expect(document.querySelector('#study-self-mastered')).toBeNull();
+  document.querySelector('#study-reveal-answer').click();
+  document.querySelector('#study-self-mastered').click();
+  document.querySelector('#study-self-mastered').click();
+  expect(study._sessionSelfReviewed).toBe(1);
+  expect(study._sessionSelfMastered).toBe(1);
+  expect(study._pushCorrectToLeaderboard).not.toHaveBeenCalled();
+  expect(mc.FastLearnCore.updateMemory).toHaveBeenCalledTimes(1);
+  study._renderQuestion();
+  expect(document.querySelector('#study-self-mastered').disabled).toBe(true);
+});
+
+it('shows a self-review summary without a zero accuracy or leaderboard submission', () => {
+  const { study } = setup();
+  study._sessionAnswered = 0;
+  study._sessionCorrect = 0;
+  study._sessionWrongIds = [];
+  study._sessionSelfReviewed = 2;
+  study._sessionSelfMastered = 1;
+  study._updateHeaderForSummary = vi.fn();
+  study._pushStudyScoreToLeaderboard = vi.fn();
+  study._showSessionSummary();
+  expect(document.querySelector('.study-summary').textContent).not.toContain('0%');
+  expect(document.querySelector('.study-summary').textContent).toContain('主观题自评 2 题');
+  expect(study._pushStudyScoreToLeaderboard).not.toHaveBeenCalled();
+});
+
+it('does not build choice-only cache entries for subjective questions', () => {
+  vi.useFakeTimers();
+  const { study, context } = setup();
+  vm.runInNewContext(readFileSync('src/modules/speed-engine.js', 'utf8'), context);
+  expect(context.window.speedEngine._buildAndCache(study, { id: 'essay', questionType: 'subjective' }, 0)).toBeNull();
+});
+
 it('does not cache a nonexistent next question and invalidates another session at the same index', () => {
   vi.useFakeTimers();
   const { study, context } = setup();

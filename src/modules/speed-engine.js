@@ -186,6 +186,7 @@
      * via _renderHeaderHTML() — these are pure string ops and take microseconds.
      */
     _buildAndCache: function(study, q, questionIndex) {
+      if (q && q.questionType === 'subjective') return null;
       if (!q) return null;
       var cacheKey = this._cacheKey(study._currentSubject, questionIndex);
       var existing = this._memCache.get(cacheKey);

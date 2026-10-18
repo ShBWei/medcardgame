@@ -13,22 +13,17 @@
     _subjCodeMap: null,   // subject → code (built lazily)
     _codeSubjMap: null,   // code → subject
 
-    /** Build subject↔code mappings from config (lazy, cached) */
+    /** Persisted codes must remain stable even when the subject UI is reordered. Append only. */
     _buildMaps: function() {
       if (this._subjCodeMap) return;
       this._subjCodeMap = {};
       this._codeSubjMap = {};
-      var cfg = MediCard.Config;
-      if (cfg && cfg.subjectCategories) {
-        var code = 0;
-        cfg.subjectCategories.forEach(function(cat) {
-          (cat.subjects || []).forEach(function(subj) {
-            this._subjCodeMap[subj] = code;
-            this._codeSubjMap[code] = subj;
-            code++;
-          }.bind(this));
-        }.bind(this));
-      }
+      var subjects = ['cell-biology', 'biochemistry', 'physiology', 'pathology',
+        'histology-embryology', 'systematic-anatomy', 'immunology', 'microbiology', 'pathophysiology'];
+      subjects.forEach(function(subj, code) {
+        this._subjCodeMap[subj] = code;
+        this._codeSubjMap[code] = subj;
+      }.bind(this));
     },
 
     /** Encode "microbiology_042" → "7:42" (position encoding, ~60% smaller) */
@@ -99,6 +94,7 @@
     _subjectFromPlainId: function(qid) {
       // Prefix → subject mapping (longest first to avoid partial matches)
       var prefixMap = {
+        'pathophysiology': 'pathophysiology',
         'histology-embryology': 'histology-embryology',
         'systematic-anatomy': 'systematic-anatomy',
         'cell-biology': 'cell-biology',
@@ -145,7 +141,7 @@
       if (!qid || typeof qid !== 'string') return false;
       var knownPrefixes = [
         'histology-embryology', 'systematic-anatomy', 'cell-biology', 'biochemistry',
-        'physiology', 'pathology', 'immunology', 'microbiology',
+        'physiology', 'pathology', 'pathophysiology', 'immunology', 'microbiology',
         'histol', 'sys-anat', 'cell-bio', 'bioche', 'immuno', 'micro'
       ];
       for (var i = 0; i < knownPrefixes.length; i++) {

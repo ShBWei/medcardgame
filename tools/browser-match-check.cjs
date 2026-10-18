@@ -69,7 +69,13 @@ async function run(relayOnly) {
     console.log('READY OK');
     assert.equal(await host.evaluate(() => MediCard.RoomManager.players.length), 2);
     // Supply a deterministic deck to isolate the match flow from large question downloads.
-    await host.evaluate(() => {
+    const answerTexts = await host.evaluate(async (subject) => {
+      let source;
+      if (subject) {
+        await new Promise(resolve => MediCard.QuestionLoader.onSubjectReady(subject, resolve));
+        source = MediCard.QuestionLoader.getSubject(subject)[0];
+        if (!source || source.studyOnly) throw new Error('No battle-ready workbook question');
+      }
       const cards = Array.from({ length: 30 }, (_, i) => ({
         id: 'acceptance-' + i,
         cardType: 'attack',
@@ -80,9 +86,14 @@ async function run(relayOnly) {
         subject: 'physiology',
         difficulty: 'common',
         explanation: '测试题，仅用于连接验收。',
+        ...(source ? { ...source, id: 'acceptance-' + i, subject } : {}),
       }));
       MediCard.CardData.generateFullDeck = () => cards;
-    });
+      if (!source) return { correct: '正确', wrong: '错误' };
+      const correct = source.options.find(o => source.correctAnswers.includes(o[0]));
+      const wrong = source.options.find(o => !source.correctAnswers.includes(o[0]));
+      return { correct: correct.replace(/^[A-Z][.、．]\s*/, ''), wrong: wrong.replace(/^[A-Z][.、．]\s*/, '') };
+    }, process.env.TEST_SUBJECT || '');
     await host.locator('#btn-start-game').click();
     console.log('START CLICKED');
     await guest.waitForFunction(
@@ -93,7 +104,7 @@ async function run(relayOnly) {
     // Real intent -> transport -> defense popup -> answer -> host settlement -> transport.
     await host.evaluate(() => MediCard.ScreenBattle._handleAttackIntent(0, 0, 1));
     await guest.locator('[data-answer-letter]').first().waitFor();
-    await guest.locator('[data-answer-letter]').filter({ hasText: '错误' }).click();
+    await guest.locator('[data-answer-letter]').filter({ hasText: answerTexts.wrong }).click();
     await guest.getByRole('button', { name: '继续', exact: true }).click();
     await guest.waitForFunction(
       (before) => MediCard.GameState.players[1].resources.hp.current < before,
@@ -121,7 +132,7 @@ async function run(relayOnly) {
         p = M.GameState.players[1];
       M.MPAttackResolver.executeAttack(b, p, p.hand[0], 0, 0);
     });
-    await host.locator('[data-answer-letter]').filter({ hasText: '正确' }).click();
+    await host.locator('[data-answer-letter]').filter({ hasText: answerTexts.correct }).click();
     await host.getByRole('button', { name: '继续', exact: true }).click();
     await guest.waitForFunction(() => !MediCard.ScreenBattle._attackInProgress);
     assert.equal(

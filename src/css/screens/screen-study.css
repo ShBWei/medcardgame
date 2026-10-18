@@ -1734,3 +1734,19 @@
 @media (prefers-reduced-motion: reduce) {
   #screen-study *, #screen-study *::before, #screen-study *::after { animation: none !important; transition: none !important; }
 }
+.study-self-review textarea {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  margin: 12px 0;
+  padding: 14px;
+  border: 1px solid var(--study-accent, #d98baa);
+  border-radius: 12px;
+  background: var(--study-card-bg, #fff);
+  color: var(--study-text, #333);
+  font: inherit;
+  line-height: 1.7;
+  resize: vertical;
+}
+.study-reference-answer { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; margin-top: 12px; }
+.study-self-review a { color: var(--study-accent, #935674); }

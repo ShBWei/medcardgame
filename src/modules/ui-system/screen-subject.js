@@ -183,6 +183,7 @@
           var chCount = {};
           if (rawQ) {
             for (var qi = 0; qi < rawQ.length; qi++) {
+              if (rawQ[qi].studyOnly || rawQ[qi].questionType === 'subjective') continue;
               var ch = rawQ[qi].chapter;
               if (ch) chCount[ch] = (chCount[ch] || 0) + 1;
             }
@@ -411,8 +412,8 @@
         var questions = MediCard.QuestionLoader._getSubjectRaw(subj);
         if (!questions || !questions.length) {
           var meta = MediCard.Config.subjectMeta[subj];
-          stats.total += meta ? (meta.questionCount || 0) : 0;
-          stats.bySubject[subj] = meta ? (meta.questionCount || 0) : 0;
+          stats.total += meta ? (meta.battleQuestionCount == null ? meta.questionCount || 0 : meta.battleQuestionCount) : 0;
+          stats.bySubject[subj] = meta ? (meta.battleQuestionCount == null ? meta.questionCount || 0 : meta.battleQuestionCount) : 0;
           continue;
         }
         // Apply chapter filter if user has made a partial selection
@@ -425,6 +426,7 @@
         }
         for (var j = 0; j < questions.length; j++) {
           var q = questions[j];
+          if (q.studyOnly || q.questionType === 'subjective') continue;
           if (filterSet && !filterSet[q.chapter]) continue;
           stats.total++;
           var d = q.difficulty || 'common';

@@ -1,0 +1,120 @@
+{
+  "source": "病理生理学学习指导与习题集-第2版-全书签.pdf",
+  "sourceSha256": "016a95754530d41fea44d2bb9167a3f752f267583cb65d5b6e60e0d3ae5eca03",
+  "total": 1243,
+  "objective": 858,
+  "subjective": 385,
+  "chapters": [
+    {
+      "chapter": "第一章 绪论",
+      "objective": 5,
+      "subjective": 3
+    },
+    {
+      "chapter": "第二章疾病概论",
+      "objective": 8,
+      "subjective": 13
+    },
+    {
+      "chapter": "第三章水、电解质代谢紊乱",
+      "objective": 71,
+      "subjective": 29
+    },
+    {
+      "chapter": "第四章酸碱平衡和酸碱平衡紊乱",
+      "objective": 60,
+      "subjective": 26
+    },
+    {
+      "chapter": "第五章糖代谢紊乱",
+      "objective": 40,
+      "subjective": 18
+    },
+    {
+      "chapter": "第六章脂代谢紊乱",
+      "objective": 20,
+      "subjective": 11
+    },
+    {
+      "chapter": "第七章缺氧",
+      "objective": 38,
+      "subjective": 24
+    },
+    {
+      "chapter": "第八章发热",
+      "objective": 71,
+      "subjective": 14
+    },
+    {
+      "chapter": "第九章应激",
+      "objective": 40,
+      "subjective": 12
+    },
+    {
+      "chapter": "第十章细胞信号转导异常与疾病",
+      "objective": 35,
+      "subjective": 14
+    },
+    {
+      "chapter": "第十一章细胞增殖和凋亡异常与疾病",
+      "objective": 38,
+      "subjective": 25
+    },
+    {
+      "chapter": "第十二章缺血-再灌注损伤",
+      "objective": 39,
+      "subjective": 8
+    },
+    {
+      "chapter": "第十三章休克",
+      "objective": 70,
+      "subjective": 26
+    },
+    {
+      "chapter": "第十四章凝血与抗凝血平衡紊乱",
+      "objective": 41,
+      "subjective": 10
+    },
+    {
+      "chapter": "第十五章心功能不全",
+      "objective": 33,
+      "subjective": 18
+    },
+    {
+      "chapter": "第十六章肺功能不全",
+      "objective": 40,
+      "subjective": 20
+    },
+    {
+      "chapter": "第十七章肝功能不全.",
+      "objective": 71,
+      "subjective": 19
+    },
+    {
+      "chapter": "第十八章肾功能不全",
+      "objective": 40,
+      "subjective": 23
+    },
+    {
+      "chapter": "第十九章脑功能不全",
+      "objective": 38,
+      "subjective": 14
+    },
+    {
+      "chapter": "第二十章多器官功能障碍",
+      "objective": 60,
+      "subjective": 24
+    },
+    {
+      "chapter": "第二十一章病理生理学常用实验",
+      "objective": 0,
+      "subjective": 34
+    }
+  ],
+  "structuralIssues": [],
+  "notes": [
+    "实验二原书没有思考题；实验八讨论内容按主观题收录。",
+    "实验思考题原书未提供独立参考答案；保留来源页并明确标注。",
+    "OCR完成两遍识别与结构校验；保留原书页面供核对公式、单位和上下标。"
+  ]
+}
