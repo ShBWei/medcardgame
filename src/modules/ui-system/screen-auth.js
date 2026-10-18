@@ -458,7 +458,7 @@
           try {
             if (MediCard.CloudAPI) {
               MediCard.CloudAPI.init();
-              MediCard.CloudAPI.login(username, password).catch(function(){});
+              MediCard.CloudAPI.login(user.username, password).catch(function(){});
             }
           } catch(e) {}
           setTimeout(function() { MediCard.Storage.syncAccountToServer(); }, 500);
